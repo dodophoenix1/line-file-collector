@@ -57,9 +57,9 @@
 
 ### ขั้นตอนที่ 4: เชื่อมต่อ LINE Webhook เข้ากับลิงก์คลาวด์ใหม่
 1. เมื่อระบบบน Render ติดตั้งเสร็จสมบูรณ์ (จะขึ้นคำว่า `Live` สีเขียว) คุณจะได้ลิงก์เว็บสาธารณะฟรี 24 ชั่วโมงจาก Render ด้านบนสุด เช่น:
-   `https://line-file-collector.onrender.com`
+   `https://your-app-name.onrender.com`
 2. คัดลอกลิงก์นั้น แล้วเติมคำว่า **`/webhook`** ต่อท้าย เช่น:
-   👉 `https://line-file-collector.onrender.com/webhook`
+   👉 `https://your-app-name.onrender.com/webhook`
 3. นำลิงก์นี้ไปกรอกลงในช่อง **Webhook URL** บนหน้าตั้งค่า **LINE Developers Console** ของบอทตัวเดิมของคุณ กด **Save** และกด **Verify**
 4. เรียบร้อย! ระบบของคุณจะออนไลน์แบบ 24 ชั่วโมงสมบูรณ์แบบ คุณสามารถปิดคอมพิวเตอร์ของคุณได้ทันที และบอทจะทำงานรวบรวมไฟล์อัปโหลดเข้า Google Drive พร้อมแสดงบนหน้าเว็บสาธารณะได้ตลอดเวลาครับ! 🚀
 
