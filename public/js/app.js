@@ -739,6 +739,16 @@ cancelLoginBtn.addEventListener('click', () => {
   adminLoginModal.close();
 });
 
+// Buy Me a Coffee Modal
+const bmcfPillBtn = document.getElementById('bmcf-pill-btn');
+const bmcfModal = document.getElementById('bmcf-modal');
+
+if (bmcfPillBtn && bmcfModal) {
+  bmcfPillBtn.addEventListener('click', () => {
+    bmcfModal.showModal();
+  });
+}
+
 // Initial Load
 document.addEventListener('DOMContentLoaded', () => {
   updateAdminUI();
