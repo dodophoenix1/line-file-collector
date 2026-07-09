@@ -654,6 +654,11 @@ app.get('/api/files', async (req, res) => {
   try {
     const results = { documents: [], images: [], videos: [], others: [] };
     
+    // Check Demo Mode
+    if (process.env.DEMO_MODE === 'true') {
+      return res.json({ success: true, files: getDemoFiles() });
+    }
+    
     // 1. Primary: Try MySQL
     if (dbConnected) {
       try {
@@ -794,6 +799,33 @@ app.delete('/api/files/:category/:filename', async (req, res) => {
 
 // GET /api/status (Aggregates stats from MySQL or Google Drive)
 app.get('/api/status', async (req, res) => {
+  // Check Demo Mode
+  if (process.env.DEMO_MODE === 'true') {
+    return res.json({
+      success: true,
+      status: {
+        lineConfigured: true,
+        googleDriveConnected: true,
+        googleDriveFolderId: 'demo-folder-id-12345',
+        port: PORT,
+        totalFiles: 5,
+        totalSize: 18051892,
+        totalSizeFormatted: '17.22 MB',
+        categoryBreakdown: {
+          documents: { count: 2, size: 2301892, sizeFormatted: '2.19 MB' },
+          images: { count: 2, size: 570000, sizeFormatted: '556.6 KB' },
+          videos: { count: 1, size: 15400000, sizeFormatted: '14.68 MB' },
+          others: { count: 0, size: 0, sizeFormatted: '0 Bytes' }
+        },
+        webhookCalls: 42,
+        totalProcessed: 42,
+        errors: 0,
+        lastEventTime: new Date().toISOString(),
+        uptime: process.uptime()
+      }
+    });
+  }
+
   let totalSpace = 0;
   let totalFilesCount = 0;
   const breakdown = {
@@ -876,6 +908,82 @@ app.get('/api/status', async (req, res) => {
     }
   });
 });
+
+const getDemoFiles = () => {
+  return {
+    documents: [
+      {
+        name: 'แผนการจัดการเรียนรู้_ฟิสิกส์_ม5.pdf',
+        category: 'documents',
+        size: 2256892,
+        sizeFormatted: '2.15 MB',
+        createdAt: new Date().toISOString(),
+        url: '#',
+        driveFileId: 'demo_doc_1',
+        driveUrl: 'https://drive.google.com'
+      },
+      {
+        name: 'ใบงานการทดลอง_เครื่องเคาะสัญญาณเวลา.docx',
+        category: 'documents',
+        size: 45000,
+        sizeFormatted: '43.9 KB',
+        createdAt: new Date(Date.now() - 3600000).toISOString(),
+        url: '#',
+        driveFileId: 'demo_doc_2',
+        driveUrl: 'https://drive.google.com'
+      }
+    ],
+    images: [
+      {
+        name: 'บรรยากาศห้องเรียนฟิสิกส์.jpg',
+        category: 'images',
+        size: 320000,
+        sizeFormatted: '312.5 KB',
+        createdAt: new Date(Date.now() - 10000000).toISOString(),
+        url: 'https://images.unsplash.com/photo-1503676260728-1c00da094a0b?w=800',
+        thumbnailUrl: 'https://images.unsplash.com/photo-1503676260728-1c00da094a0b?w=400',
+        driveFileId: 'demo_img_1',
+        driveUrl: 'https://images.unsplash.com/photo-1503676260728-1c00da094a0b?w=1200'
+      },
+      {
+        name: 'การทดลองแล็บฟิสิกส์.jpg',
+        category: 'images',
+        size: 250000,
+        sizeFormatted: '244.1 KB',
+        createdAt: new Date(Date.now() - 20000000).toISOString(),
+        url: 'https://images.unsplash.com/photo-1532094349884-543bc11b234d?w=800',
+        thumbnailUrl: 'https://images.unsplash.com/photo-1532094349884-543bc11b234d?w=400',
+        driveFileId: 'demo_img_2',
+        driveUrl: 'https://images.unsplash.com/photo-1532094349884-543bc11b234d?w=1200'
+      }
+    ],
+    videos: [
+      {
+        name: 'สาธิตเครื่องเคาะสัญญาณเวลา.mp4',
+        category: 'videos',
+        size: 15400000,
+        sizeFormatted: '14.68 MB',
+        createdAt: new Date(Date.now() - 40000000).toISOString(),
+        url: '#',
+        thumbnailUrl: 'https://images.unsplash.com/photo-1427504494785-3a9ca7044f45?w=400',
+        driveFileId: 'demo_vid_1',
+        driveUrl: 'https://images.unsplash.com/photo-1427504494785-3a9ca7044f45?w=1200'
+      }
+    ],
+    others: [
+      {
+        name: 'คะแนนเก็บ_ม5_เทอม1.xlsx',
+        category: 'others',
+        size: 15400,
+        sizeFormatted: '15.0 KB',
+        createdAt: new Date(Date.now() - 50000000).toISOString(),
+        url: '#',
+        driveFileId: 'demo_other_1',
+        driveUrl: 'https://drive.google.com'
+      }
+    ]
+  };
+};
 
 // Start Server
 app.listen(PORT, () => {
