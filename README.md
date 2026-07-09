@@ -67,6 +67,8 @@
 
 ## 💖 สนับสนุนผู้พัฒนา (Support the Developer)
 
-หากโปรเจกต์นี้มีประโยชน์และช่วยให้งานโรงเรียนของคุณง่ายขึ้น คุณสามารถสนับสนุนและเลี้ยงกาแฟผู้พัฒนา (N. Vetchagama) ได้ที่นี่ครับ! ☕
+หากโปรเจกต์นี้มีประโยชน์และช่วยให้งานโรงเรียนของคุณง่ายขึ้น คุณสามารถสนับสนุนและเลี้ยงกาแฟผู้พัฒนา (N. Vetchagama) ได้โดยการสแกน QR Code PromptPay นี้ครับ! ☕
 
-[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-Donate-FFDD00?style=for-the-badge&logo=buy-me-a-coffee&logoColor=black)](https://www.buymeacoffee.com/dodophoenix1)
+<p align="left">
+  <img src="public/images/bmcf.JPG" width="220" alt="PromptPay QR Code">
+</p>

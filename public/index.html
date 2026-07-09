@@ -34,12 +34,6 @@
       </div>
       
       <div class="status-pills-container">
-        <!-- Buy me a coffee button -->
-        <button class="server-status-pill" id="bmcf-pill-btn" style="cursor: pointer; transition: all 0.3s ease; border: 1px solid rgba(255, 221, 0, 0.3); background: rgba(255, 221, 0, 0.05); color: #ffd700; display: flex; align-items: center;">
-          <i class="fa-solid fa-mug-hot" style="margin-right: 6px;"></i>
-          <span class="status-text">Buy me a coffee</span>
-        </button>
-
         <!-- Admin Login Pill/Button -->
         <button class="server-status-pill admin-pill" id="admin-login-pill-btn" style="cursor: pointer; transition: all 0.3s ease; border: 1px solid rgba(249, 115, 22, 0.2); background: rgba(249, 115, 22, 0.05); color: #fff;">
           <span class="pulse-dot warning" id="admin-lock-dot"></span>
@@ -381,28 +375,6 @@ GOOGLE_DRIVE_FOLDER_ID=วาง Google Drive Folder ID ที่คัดลอ
         <button type="submit" id="submit-login-btn" class="btn-primary-action" style="padding: 10px 24px; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; background: linear-gradient(135deg, var(--color-blue), var(--color-purple)); color: white;">เข้าสู่ระบบ</button>
       </div>
     </form>
-  </dialog>
-
-  <!-- Buy Me a Coffee Modal -->
-  <dialog id="bmcf-modal" class="confirm-dialog">
-    <div class="confirm-wrapper" style="max-width: 380px; text-align: center; background: rgba(16, 20, 35, 0.95); border: 1px solid rgba(255, 221, 0, 0.2); box-shadow: 0 10px 40px rgba(0,0,0,0.5); position: relative;">
-      <div class="close-btn-wrapper" style="position: absolute; top: 12px; right: 16px; cursor: pointer; color: rgba(255,255,255,0.4); font-size: 1.2rem; transition: color 0.3s;" onclick="document.getElementById('bmcf-modal').close()">
-        <i class="fa-solid fa-xmark"></i>
-      </div>
-      <div style="margin-top: 10px;">
-        <div style="font-size: 3rem; color: #ffd700; margin-bottom: 10px;">
-          <i class="fa-solid fa-mug-hot"></i>
-        </div>
-        <h2 style="color: white; margin-bottom: 5px; font-size: 1.5rem; letter-spacing: 0.5px;">Buy me coffee</h2>
-        <p style="color: var(--text-secondary); font-size: 0.85rem; margin-bottom: 15px;">เลี้ยงกาแฟและสนับสนุนผู้พัฒนาระบบ ☕</p>
-      </div>
-      <div style="background: rgba(255,255,255,0.05); padding: 15px; border-radius: 12px; display: inline-block; border: 1px solid rgba(255,255,255,0.05); margin: 0 auto;">
-        <img src="/images/bmcf.JPG" alt="PromptPay QR Code" style="width: 100%; max-width: 250px; border-radius: 8px; display: block; margin: 0 auto; box-shadow: 0 4px 15px rgba(0,0,0,0.3);">
-      </div>
-      <div style="margin-top: 20px; width: 100%;">
-        <button onclick="document.getElementById('bmcf-modal').close()" class="btn-primary-action" style="width: 100%; padding: 12px; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; background: linear-gradient(135deg, #ffd700, #ffaa00); color: black;">ขอบคุณครับ!</button>
-      </div>
-    </div>
   </dialog>
 
   <script src="/js/app.js"></script>
