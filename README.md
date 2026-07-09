@@ -10,7 +10,7 @@
 
 ### ขั้นตอนที่ 1: เตรียมโค้ดของคุณขึ้น GitHub
 1. สมัครใช้งาน [GitHub](https://github.com/) (หากมีอยู่แล้วสามารถใช้บัญชีเดิมได้เลย)
-2. ทำการสร้าง **Private Repository** (แนะนำแบบส่วนตัวเพื่อความปลอดภัย) ขึ้นมาบน GitHub ตั้งชื่อว่า `line-file-collector`
+2. ทำการสร้าง **Public Repository** (ระบบตั้งค่าบล็อกไฟล์ความลับทั้งหมดผ่าน `.gitignore` เรียบร้อยแล้ว จึงสามารถแชร์โค้ดเป็นสาธารณะได้อย่างปลอดภัย 100%) ขึ้นมาบน GitHub ตั้งชื่อว่า `line-file-collector`
 3. อัปโหลดไฟล์โปรเจกต์นี้ทั้งหมดขึ้น GitHub **ยกเว้น** ไฟล์ความลับเหล่านี้ (ห้ามอัปโหลดเด็ดขาด!) ซึ่งระบบได้ตั้งค่าบล็อกในไฟล์ `.gitignore` ไว้แล้ว:
    - `node_modules/`
    - `.env`
@@ -62,3 +62,11 @@
    👉 `https://line-file-collector.onrender.com/webhook`
 3. นำลิงก์นี้ไปกรอกลงในช่อง **Webhook URL** บนหน้าตั้งค่า **LINE Developers Console** ของบอทตัวเดิมของคุณ กด **Save** และกด **Verify**
 4. เรียบร้อย! ระบบของคุณจะออนไลน์แบบ 24 ชั่วโมงสมบูรณ์แบบ คุณสามารถปิดคอมพิวเตอร์ของคุณได้ทันที และบอทจะทำงานรวบรวมไฟล์อัปโหลดเข้า Google Drive พร้อมแสดงบนหน้าเว็บสาธารณะได้ตลอดเวลาครับ! 🚀
+
+---
+
+## 💖 สนับสนุนผู้พัฒนา (Support the Developer)
+
+หากโปรเจกต์นี้มีประโยชน์และช่วยให้งานโรงเรียนของคุณง่ายขึ้น คุณสามารถสนับสนุนและเลี้ยงกาแฟผู้พัฒนา (N. Vetchagama) ได้ที่นี่ครับ! ☕
+
+[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-Donate-FFDD00?style=for-the-badge&logo=buy-me-a-coffee&logoColor=black)](https://www.buymeacoffee.com/dodophoenix1)
