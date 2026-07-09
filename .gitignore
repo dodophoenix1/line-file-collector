@@ -1,0 +1,7 @@
+node_modules/
+.env
+google-token.json
+google-client-secret.json
+google-credentials.json
+downloads/
+admin_notes.md

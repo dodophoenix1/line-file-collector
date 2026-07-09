@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LINE File Hub & Collector Dashboard</title>
+  <meta name="description" content="หน้าแดชบอร์ดจัดการไฟล์จาก LINE Bot แยกประเภทไฟล์เป็น เอกสาร รูปภาพ วิดีโอ และไฟล์อื่นๆ อัปโหลดขึ้น Google Drive ได้ทันที">
+  
+  <!-- Premium Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Sarabun:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  
+  <!-- FontAwesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  
+  <!-- Custom Glassmorphism CSS -->
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <div class="glass-bg-blur"></div>
+  
+  <div class="app-container">
+    <!-- Header -->
+    <header class="app-header">
+      <div class="header-logo">
+        <div class="logo-icon">
+          <i class="fa-solid fa-cloud-arrow-down"></i>
+        </div>
+        <div class="logo-text">
+          <h1>LINE File Collector</h1>
+          <p>ระบบรวบรวมไฟล์จาก LINE & อัปโหลด Google Drive อัตโนมัติ</p>
+        </div>
+      </div>
+      
+      <div class="status-pills-container">
+        <!-- Admin Login Pill/Button -->
+        <button class="server-status-pill admin-pill" id="admin-login-pill-btn" style="cursor: pointer; transition: all 0.3s ease; border: 1px solid rgba(249, 115, 22, 0.2); background: rgba(249, 115, 22, 0.05); color: #fff;">
+          <span class="pulse-dot warning" id="admin-lock-dot"></span>
+          <span class="status-text" id="admin-status-text">🔒 Admin Login</span>
+        </button>
+
+        <!-- LINE API Status Pill -->
+        <div class="server-status-pill" id="line-status-container">
+          <span class="pulse-dot active" id="status-dot"></span>
+          <span class="status-text" id="status-text-pill">LINE: กำลังตรวจสอบ...</span>
+        </div>
+        <!-- Google Drive Status Pill -->
+        <div class="server-status-pill" id="drive-status-container">
+          <span class="pulse-dot" id="drive-status-dot"></span>
+          <span class="status-text" id="drive-status-text">Drive: กำลังตรวจสอบ...</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- Alert Panel if LINE config is missing -->
+    <div id="config-warning-banner" class="warning-banner hidden">
+      <div class="warning-icon">
+        <i class="fa-solid fa-triangle-exclamation"></i>
+      </div>
+      <div class="warning-content">
+        <h3>LINE API ยังไม่ได้ระบุข้อมูล Token!</h3>
+        <p>ระบบกำลังทำงานใน <strong>โหมดทดสอบ (Mock Mode)</strong> โปรดกรอกข้อมูล <code>LINE_CHANNEL_ACCESS_TOKEN</code> และ <code>LINE_CHANNEL_SECRET</code> ในไฟล์ <code>.env</code> ของโปรเจกต์</p>
+      </div>
+      <button class="warning-close-btn" id="hide-warning-btn">
+        <i class="fa-solid fa-xmark"></i>
+      </button>
+    </div>
+
+    <!-- Overview Stats Grid -->
+    <section class="stats-grid">
+      <!-- Total Files -->
+      <div class="stat-card glass-card">
+        <div class="stat-icon icon-blue">
+          <i class="fa-solid fa-file-invoice"></i>
+        </div>
+        <div class="stat-details">
+          <span class="stat-label">ไฟล์ทั้งหมด</span>
+          <h2 class="stat-value" id="stat-total-files">0</h2>
+          <span class="stat-subtext" id="stat-processed-count">ประมวลผลแล้ว 0 รายการ</span>
+        </div>
+      </div>
+
+      <!-- Storage Used -->
+      <div class="stat-card glass-card">
+        <div class="stat-icon icon-purple">
+          <i class="fa-solid fa-hard-drive"></i>
+        </div>
+        <div class="stat-details">
+          <span class="stat-label">พื้นที่จัดเก็บไฟล์</span>
+          <h2 class="stat-value" id="stat-total-size">0 Bytes</h2>
+          <span class="stat-subtext">ใน Google Drive & Server</span>
+        </div>
+      </div>
+
+      <!-- Webhook Requests -->
+      <div class="stat-card glass-card">
+        <div class="stat-icon icon-green">
+          <i class="fa-solid fa-paper-plane"></i>
+        </div>
+        <div class="stat-details">
+          <span class="stat-label">การติดต่อจาก Webhook</span>
+          <h2 class="stat-value" id="stat-webhook-calls">0</h2>
+          <span class="stat-subtext" id="stat-last-call">ยังไม่มีสัญญาณเข้ามา</span>
+        </div>
+      </div>
+
+      <!-- Server Uptime -->
+      <div class="stat-card glass-card">
+        <div class="stat-icon icon-orange">
+          <i class="fa-solid fa-clock"></i>
+        </div>
+        <div class="stat-details">
+          <span class="stat-label">ระยะเวลาระบบทำงาน</span>
+          <h2 class="stat-value" id="stat-uptime">0:00:00</h2>
+          <span class="stat-subtext" id="stat-port">พอร์ตเซิร์ฟเวอร์: 3000</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Main Content Section -->
+    <main class="main-content glass-card">
+      <!-- Navigation Tabs -->
+      <nav class="category-tabs" aria-label="หมวดหมู่ไฟล์">
+        <button class="tab-btn active" id="tab-documents" data-tab="documents">
+          <i class="fa-solid fa-file-lines"></i>
+          <span>เอกสาร</span>
+          <span class="badge" id="badge-documents">0</span>
+        </button>
+        <button class="tab-btn" id="tab-images" data-tab="images">
+          <i class="fa-solid fa-image"></i>
+          <span>รูปภาพ</span>
+          <span class="badge" id="badge-images">0</span>
+        </button>
+        <button class="tab-btn" id="tab-videos" data-tab="videos">
+          <i class="fa-solid fa-video"></i>
+          <span>วิดีโอ</span>
+          <span class="badge" id="badge-videos">0</span>
+        </button>
+        <button class="tab-btn" id="tab-others" data-tab="others">
+          <i class="fa-solid fa-circle-ellipsis"></i>
+          <span>ไฟล์อื่นๆ / เสียง</span>
+          <span class="badge" id="badge-others">0</span>
+        </button>
+        <button class="tab-btn tab-btn-guide" id="tab-guide" data-tab="guide">
+          <i class="fa-solid fa-gears"></i>
+          <span>วิธีการตั้งค่า</span>
+        </button>
+      </nav>
+
+      <!-- Search & Refresh Toolbar -->
+      <div class="toolbar" id="dashboard-toolbar">
+        <div class="search-box">
+          <i class="fa-solid fa-magnifying-glass search-icon"></i>
+          <input type="text" id="search-input" placeholder="ค้นหาตามชื่อไฟล์...">
+          <button id="search-clear-btn" class="clear-btn hidden"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <button class="refresh-btn" id="refresh-data-btn" title="รีเฟรชข้อมูล">
+          <i class="fa-solid fa-rotate"></i>
+          <span>รีเฟรช</span>
+        </button>
+      </div>
+
+      <!-- Category Panes -->
+      <div class="panes-container">
+        
+        <!-- DOCUMENTS PANE -->
+        <div class="pane active" id="pane-documents">
+          <div class="table-container">
+            <table class="file-table" id="table-documents">
+              <thead>
+                <tr>
+                  <th scope="col">ชื่อไฟล์เอกสาร</th>
+                  <th scope="col">ขนาด</th>
+                  <th scope="col">วันที่บันทึก</th>
+                  <th scope="col">ลิงก์สำรอง</th>
+                  <th scope="col" class="actions-header">จัดการ</th>
+                </tr>
+              </thead>
+              <tbody id="list-documents-body">
+                <!-- Dynamically populated -->
+              </tbody>
+            </table>
+          </div>
+          <div class="empty-state hidden" id="empty-documents">
+            <div class="empty-icon"><i class="fa-solid fa-file-circle-minus"></i></div>
+            <p>ไม่พบไฟล์เอกสารในระบบ</p>
+          </div>
+        </div>
+
+        <!-- IMAGES PANE (Gallery Layout) -->
+        <div class="pane" id="pane-images">
+          <div class="image-gallery" id="gallery-images">
+            <!-- Dynamically populated -->
+          </div>
+          <div class="empty-state hidden" id="empty-images">
+            <div class="empty-icon"><i class="fa-solid fa-images"></i></div>
+            <p>ไม่พบไฟล์รูปภาพในระบบ</p>
+          </div>
+        </div>
+
+        <!-- VIDEOS PANE (Video Card Layout) -->
+        <div class="pane" id="pane-videos">
+          <div class="video-grid" id="grid-videos">
+            <!-- Dynamically populated -->
+          </div>
+          <div class="empty-state hidden" id="empty-videos">
+            <div class="empty-icon"><i class="fa-solid fa-video-slash"></i></div>
+            <p>ไม่พบไฟล์วิดีโอในระบบ</p>
+          </div>
+        </div>
+
+        <!-- OTHERS PANE -->
+        <div class="pane" id="pane-others">
+          <div class="table-container">
+            <table class="file-table" id="table-others">
+              <thead>
+                <tr>
+                  <th scope="col">ชื่อไฟล์ / เสียง</th>
+                  <th scope="col">ขนาด</th>
+                  <th scope="col">วันที่บันทึก</th>
+                  <th scope="col">ลิงก์สำรอง</th>
+                  <th scope="col" class="actions-header">จัดการ</th>
+                </tr>
+              </thead>
+              <tbody id="list-others-body">
+                <!-- Dynamically populated -->
+              </tbody>
+            </table>
+          </div>
+          <div class="empty-state hidden" id="empty-others">
+            <div class="empty-icon"><i class="fa-solid fa-folder-open"></i></div>
+            <p>ไม่พบไฟล์ประเภทอื่นๆ หรือไฟล์เสียงในระบบ</p>
+          </div>
+        </div>
+
+        <!-- GUIDE PANE (Instruction manual) -->
+        <div class="pane" id="pane-guide">
+          <div class="guide-content">
+            <h2>🛠️ วิธีการตั้งค่า LINE Bot & Google Drive Integration</h2>
+            <p class="guide-intro">ตั้งค่าการทำงานร่วมกันระหว่าง Messaging API และระบบอัปโหลดขึ้น Google Drive คลาวด์อัตโนมัติ</p>
+            
+            <div class="guide-steps">
+              <div class="step-item">
+                <div class="step-num">1</div>
+                <div class="step-desc">
+                  <h3>ตั้งค่า LINE Bot (Webhook)</h3>
+                  <p>ลงทะเบียน LINE Developers Console, ตั้งค่า Webhook URL ชี้ไปที่เซิร์ฟเวอร์ของคุณ (สร้าง HTTPS Tunnel ผ่าน <code>ngrok http 3000</code>) และเปิดสวิตช์ "Use Webhook" ใน LINE Developer Console</p>
+                </div>
+              </div>
+
+              <div class="step-item">
+                <div class="step-num">2</div>
+                <div class="step-desc">
+                  <h3>เปิดใช้งาน Google Drive API & สร้าง Service Account</h3>
+                  <p>เนื่องจากนี่คือบอทหลังบ้าน (Backend Service) เราจะใช้ **Service Account** ในการทำงานร่วมกับ Google Drive โดยไม่ต้องกดล็อกอินหน้าเว็บ:</p>
+                  <ul>
+                    <li>ไปที่ <a href="https://console.cloud.google.com/" target="_blank" rel="noopener">Google Cloud Console</a> แล้วเปิดใช้บริการ **Google Drive API** ในโปรเจกต์ของคุณ</li>
+                    <li>เข้าเมนู **IAM & Admin -> Service Accounts** สร้างบัญชี Service Account ใหม่ขึ้นมา</li>
+                    <li>กดสร้างคีย์ของ Service Account นั้น เลือกประเภทไฟล์เป็น **JSON** ระบบจะดาวน์โหลดไฟล์คีย์ลงเครื่อง</li>
+                    <li>ย้ายไฟล์คีย์นี้มาไว้ในโฟลเดอร์โปรเจกต์ของคุณ และตั้งชื่อไฟล์ว่า <code>google-credentials.json</code></li>
+                  </ul>
+                </div>
+              </div>
+
+              <div class="step-item">
+                <div class="step-num">3</div>
+                <div class="step-desc">
+                  <h3>สร้างโฟลเดอร์และแบ่งปันสิทธิ์การเข้าถึงใน Google Drive</h3>
+                  <p>บอทต้องการสิทธิ์เขียนไฟล์ลงโฟลเดอร์ที่คุณต้องการบน Google Drive:</p>
+                  <ul>
+                    <li>สร้างโฟลเดอร์ใน Google Drive ของคุณเอง</li>
+                    <li>แชร์ (Share) โฟลเดอร์นั้นให้กับอีเมลของ Service Account (มีนามสกุลลงท้ายด้วย <code>@...gserviceaccount.com</code> พบในไฟล์ JSON) โดยกำหนดสิทธิ์เป็น **Editor (ผู้แก้ไข)**</li>
+                    <li>คัดลอก **Folder ID** จากแถบ URL ของบราวเซอร์ (เช่น URL คือ <code>drive.google.com/drive/folders/1A2B3C...</code> ค่า ID คือรหัสหลังสุด <code>1A2B3C...</code>)</li>
+                  </ul>
+                </div>
+              </div>
+
+              <div class="step-item">
+                <div class="step-num">4</div>
+                <div class="step-desc">
+                  <h3>กรอกข้อมูลตัวแปรลงในไฟล์ .env</h3>
+                  <p>เปิดไฟล์ <code>.env</code> ของโปรเจกต์แล้วกรอกข้อมูล LINE และ Google Drive Folder ID ดังนี้:</p>
+                  <pre><code>LINE_CHANNEL_ACCESS_TOKEN=วาง Channel Access Token จริง
+LINE_CHANNEL_SECRET=วาง Channel Secret จริง
+
+GOOGLE_DRIVE_FOLDER_ID=วาง Google Drive Folder ID ที่คัดลอกมา</code></pre>
+                  <p class="tip-text"><i class="fa-solid fa-lightbulb"></i> <strong>อย่าลืม:</strong> รีสตาร์ทเซิร์ฟเวอร์โปรเจกต์ของคุณด้วยคำสั่ง <code>npm run dev</code> เพื่อเริ่มใช้การเชื่อมต่อ Google Drive</p>
+                </div>
+              </div>
+            </div>
+
+            <div class="guide-card-footer">
+              <p><i class="fa-solid fa-circle-check"></i> เรียบร้อย! เมื่อคุณส่งไฟล์เข้าไปในไลน์บอท บอทจะบันทึกไฟล์นั้นเก็บในคอมพิวเตอร์นี้ พร้อมทั้งยิงขึ้น Google Drive ของคุณให้ทันทีพร้อมกับสร้างลิงก์พรีวิวหน้าเว็บนี้โดยอัตโนมัติ!</p>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="app-footer">
+      <p>LINE File Hub & Collector Dashboard &copy; 2026. Designed & Crafted by N. Vetchagama</p>
+    </footer>
+  </div>
+
+  <!-- LIGHTBOX DIALOGS FOR PREVIEWS -->
+  
+  <!-- Image Lightbox Modal -->
+  <dialog id="image-lightbox-modal" class="lightbox-dialog">
+    <div class="lightbox-wrapper">
+      <button class="lightbox-close-btn" id="close-lightbox-btn" aria-label="ปิดพรีวิว">
+        <i class="fa-solid fa-xmark"></i>
+      </button>
+      <div class="lightbox-content">
+        <img id="lightbox-img" src="" alt="ขยายภาพพรีวิว">
+      </div>
+      <div class="lightbox-caption">
+        <span class="lightbox-title" id="lightbox-img-title">image_name.jpg</span>
+        <div class="lightbox-actions" id="lightbox-img-actions-container">
+          <a href="" id="lightbox-download-link" download class="btn-primary-action"><i class="fa-solid fa-download"></i> ดาวน์โหลด</a>
+        </div>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- Video Player Modal -->
+  <dialog id="video-player-modal" class="lightbox-dialog">
+    <div class="lightbox-wrapper">
+      <button class="lightbox-close-btn" id="close-video-btn" aria-label="ปิดพรีวิว">
+        <i class="fa-solid fa-xmark"></i>
+      </button>
+      <div class="lightbox-content">
+        <video id="preview-video-element" controls></video>
+      </div>
+      <div class="lightbox-caption">
+        <span class="lightbox-title" id="lightbox-vid-title">video_name.mp4</span>
+        <div class="lightbox-actions" id="lightbox-vid-actions-container">
+          <a href="" id="lightbox-vid-download" download class="btn-primary-action"><i class="fa-solid fa-download"></i> ดาวน์โหลด</a>
+        </div>
+      </div>
+    </div>
+  </dialog>
+  
+  <!-- Delete Confirmation Modal -->
+  <dialog id="delete-confirm-modal" class="confirm-dialog">
+    <div class="confirm-wrapper">
+      <div class="confirm-header">
+        <i class="fa-solid fa-circle-exclamation warn-icon"></i>
+        <h2>ยืนยันการลบไฟล์?</h2>
+      </div>
+      <p>คุณต้องการลบไฟล์ <strong id="delete-file-display-name">file_name.pdf</strong> หรือไม่? การลบนี้จะลบไฟล์ออกจากเครื่องเซิร์ฟเวอร์ และลบไฟล์ออกจาก Google Drive ของคุณด้วย (หากมี)</p>
+      <div class="confirm-buttons">
+        <button id="cancel-delete-btn" class="btn-secondary">ยกเลิก</button>
+        <button id="confirm-delete-btn" class="btn-danger-confirm">ลบไฟล์ถาวร</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- Admin Login Modal -->
+  <dialog id="admin-login-modal" class="confirm-dialog">
+    <form method="dialog" class="confirm-wrapper" id="admin-login-form">
+      <div class="confirm-header">
+        <i class="fa-solid fa-lock" style="color: var(--color-orange); font-size: 1.5rem;"></i>
+        <h2>ผู้ดูแลระบบเข้าสู่ระบบ</h2>
+      </div>
+      <p style="margin: 10px 0 5px; color: var(--text-secondary); font-size: 0.9rem;">กรุณากรอกรหัสผ่านเพื่อเข้าสู่ระบบผู้ดูแลระบบ (เพื่อสิทธิ์ในการลบไฟล์)</p>
+      <div class="input-container" style="width: 100%; margin: 15px 0 5px;">
+        <input type="password" id="admin-password-input" placeholder="รหัสผ่านผู้ดูแลระบบ" required style="width: 100%; padding: 12px 16px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.1); background: rgba(0,0,0,0.3); color: white; outline: none; font-size: 16px; transition: all 0.3s ease;">
+        <div id="login-error-message" style="color: #ef4444; font-size: 0.85rem; margin-top: 5px; text-align: left;" class="hidden">รหัสผ่านไม่ถูกต้อง</div>
+      </div>
+      <div class="confirm-buttons" style="margin-top: 15px;">
+        <button type="button" id="cancel-login-btn" class="btn-secondary">ยกเลิก</button>
+        <button type="submit" id="submit-login-btn" class="btn-primary-action" style="padding: 10px 24px; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; background: linear-gradient(135deg, var(--color-blue), var(--color-purple)); color: white;">เข้าสู่ระบบ</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="/js/app.js"></script>
+</body>
+</html>
