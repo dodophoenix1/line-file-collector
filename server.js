@@ -54,18 +54,7 @@ const initializeFolders = () => {
 
 initializeFolders();
 
-// Helper to check if current time in Bangkok (UTC+7) is between 1:00 AM and 4:59 AM
-const isSystemOffHours = () => {
-  // If running in Demo Mode, do not enforce off-hours to allow 24/7 public previewing
-  if (process.env.DEMO_MODE === 'true') {
-    return false;
-  }
-  const now = new Date();
-  const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
-  const ictDate = new Date(utc + (3600000 * 7));
-  const hour = ictDate.getHours();
-  return (hour >= 1 && hour < 5);
-};
+
 
 // Helper to check if Line configuration is filled
 const isLineConfigured = () => {
@@ -664,10 +653,6 @@ const handleMessageEvent = async (event) => {
 
 // Middleware to verify Dashboard PIN (Security Lock)
 const verifyDashboardPin = (req, res, next) => {
-  // Check system off-hours (01:00 - 05:00 Bangkok time)
-  if (isSystemOffHours()) {
-    return res.status(503).json({ success: false, error: 'System is closed between 01:00 and 05:00' });
-  }
 
   // If running in Demo Mode, allow unauthenticated access to showcase mock files
   if (process.env.DEMO_MODE === 'true') {

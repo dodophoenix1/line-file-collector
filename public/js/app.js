@@ -160,10 +160,6 @@ const fetchDashboardData = async () => {
 
     // 1. Fetch Status
     const statusRes = await fetch('/api/status', { headers });
-    if (statusRes.status === 503) {
-      document.getElementById('system-closed-overlay').style.display = 'flex';
-      return;
-    }
     if (statusRes.status === 401) {
       sessionStorage.removeItem('dashboardPin');
       document.getElementById('pin-lock-overlay').classList.remove('fade-out');
@@ -177,10 +173,6 @@ const fetchDashboardData = async () => {
     
     // 2. Fetch Files
     const filesRes = await fetch('/api/files', { headers });
-    if (filesRes.status === 503) {
-      document.getElementById('system-closed-overlay').style.display = 'flex';
-      return;
-    }
     if (filesRes.status === 401) {
       sessionStorage.removeItem('dashboardPin');
       document.getElementById('pin-lock-overlay').classList.remove('fade-out');
@@ -785,10 +777,6 @@ const checkPinLockStatus = async () => {
   // Probe server status without a PIN to see if the server requires it (e.g. DEMO_MODE)
   try {
     const res = await fetch('/api/status');
-    if (res.status === 503) {
-      document.getElementById('system-closed-overlay').style.display = 'flex';
-      return;
-    }
     if (res.status === 200) {
       sessionStorage.setItem('dashboardPin', 'demo');
       pinLockOverlay.classList.add('fade-out');
