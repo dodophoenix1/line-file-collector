@@ -471,15 +471,6 @@ const handleMessageEvent = async (event) => {
   
   if (!msg) return;
 
-  // Block uploads during off-hours (01:00 - 05:00 Bangkok time)
-  if (isSystemOffHours()) {
-    console.log('[System] File message ignored: System is closed during off-hours (01:00 - 05:00)');
-    if (replyToken) {
-      await replyLineMessage(replyToken, '📥 ขณะนี้ระบบคลังไฟล์ของโรงเรียนปิดรับไฟล์ชั่วคราวระหว่างเวลา 01:00 - 05:00 น. ขออภัยในความไม่สะดวกครับ กรุณาส่งใหม่อีกครั้งในช่วงเวลาทำการครับ');
-    }
-    return;
-  }
-
   stats.totalProcessed++;
   const msgType = msg.type;
   
