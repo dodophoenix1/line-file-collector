@@ -649,8 +649,25 @@ const handleMessageEvent = async (event) => {
 
 // --- REST API FOR DASHBOARD ---
 
+// Middleware to verify Dashboard PIN (Security Lock)
+const verifyDashboardPin = (req, res, next) => {
+  // If running in Demo Mode, allow unauthenticated access to showcase mock files
+  if (process.env.DEMO_MODE === 'true') {
+    return next();
+  }
+
+  const pin = req.headers['x-dashboard-pin'] || req.query.pin;
+  const expectedPin = 'fw2569';
+
+  if (pin === expectedPin) {
+    next();
+  } else {
+    res.status(401).json({ success: false, error: 'Unauthorized: Invalid PIN' });
+  }
+};
+
 // GET /api/files (Reads from MySQL if connected, otherwise falls back to Drive API)
-app.get('/api/files', async (req, res) => {
+app.get('/api/files', verifyDashboardPin, async (req, res) => {
   try {
     const results = { documents: [], images: [], videos: [], others: [] };
     
@@ -798,7 +815,7 @@ app.delete('/api/files/:category/:filename', async (req, res) => {
 });
 
 // GET /api/status (Aggregates stats from MySQL or Google Drive)
-app.get('/api/status', async (req, res) => {
+app.get('/api/status', verifyDashboardPin, async (req, res) => {
   // Check Demo Mode
   if (process.env.DEMO_MODE === 'true') {
     return res.json({

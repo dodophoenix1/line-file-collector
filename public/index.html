@@ -18,6 +18,24 @@
   <link rel="stylesheet" href="/css/style.css">
 </head>
 <body>
+  <!-- PIN Lock Screen Overlay -->
+  <div id="pin-lock-overlay" class="pin-overlay">
+    <div class="pin-card" id="pin-card-box">
+      <div class="pin-icon">
+        <i class="fa-solid fa-shield-halved"></i>
+      </div>
+      <h2>เข้าสู่คลังไฟล์โรงเรียน</h2>
+      <p>กรุณากรอกรหัส PIN เพื่อเข้าใช้งานระบบ</p>
+      <form id="pin-lock-form">
+        <div class="pin-form-group">
+          <input type="password" id="pin-code-input" class="pin-input" placeholder="••••••••" required autocomplete="off" maxlength="10">
+          <div id="pin-error-msg" class="pin-error-msg hidden">รหัส PIN ไม่ถูกต้อง กรุณาลองอีกครั้ง</div>
+        </div>
+        <button type="submit" class="pin-submit-btn">ยืนยันรหัสผ่าน</button>
+      </form>
+    </div>
+  </div>
+
   <div class="glass-bg-blur"></div>
   
   <div class="app-container">

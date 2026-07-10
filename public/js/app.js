@@ -144,12 +144,27 @@ const formatRelativeTime = (dateString) => {
 
 // Fetch data from Server
 const fetchDashboardData = async () => {
+  const pin = sessionStorage.getItem('dashboardPin') || '';
+  if (!pin) {
+    document.getElementById('pin-lock-overlay').classList.remove('fade-out');
+    return;
+  }
+
   const refreshIcon = refreshBtn.querySelector('i');
   refreshIcon.classList.add('rotating');
   
   try {
+    const headers = {
+      'x-dashboard-pin': pin
+    };
+
     // 1. Fetch Status
-    const statusRes = await fetch('/api/status');
+    const statusRes = await fetch('/api/status', { headers });
+    if (statusRes.status === 401) {
+      sessionStorage.removeItem('dashboardPin');
+      document.getElementById('pin-lock-overlay').classList.remove('fade-out');
+      return;
+    }
     const statusData = await statusRes.json();
     if (statusData.success) {
       serverStatus = statusData.status;
@@ -157,7 +172,12 @@ const fetchDashboardData = async () => {
     }
     
     // 2. Fetch Files
-    const filesRes = await fetch('/api/files');
+    const filesRes = await fetch('/api/files', { headers });
+    if (filesRes.status === 401) {
+      sessionStorage.removeItem('dashboardPin');
+      document.getElementById('pin-lock-overlay').classList.remove('fade-out');
+      return;
+    }
     const filesJson = await filesRes.json();
     if (filesJson.success) {
       filesData = filesJson.files;
@@ -739,10 +759,70 @@ cancelLoginBtn.addEventListener('click', () => {
   adminLoginModal.close();
 });
 
+// PIN Lock Screen Logic
+const pinLockOverlay = document.getElementById('pin-lock-overlay');
+const pinCardBox = document.getElementById('pin-card-box');
+const pinLockForm = document.getElementById('pin-lock-form');
+const pinCodeInput = document.getElementById('pin-code-input');
+const pinErrorMsg = document.getElementById('pin-error-msg');
+
+const checkPinLockStatus = async () => {
+  const storedPin = sessionStorage.getItem('dashboardPin');
+  if (storedPin === 'fw2569' || storedPin === 'demo') {
+    pinLockOverlay.classList.add('fade-out');
+    fetchDashboardData();
+    return;
+  }
+
+  // Probe server status without a PIN to see if the server requires it (e.g. DEMO_MODE)
+  try {
+    const res = await fetch('/api/status');
+    if (res.status === 200) {
+      sessionStorage.setItem('dashboardPin', 'demo');
+      pinLockOverlay.classList.add('fade-out');
+      fetchDashboardData();
+    } else {
+      pinLockOverlay.classList.remove('fade-out');
+      pinCodeInput.focus();
+    }
+  } catch (err) {
+    console.error('Error probing server status:', err);
+    pinLockOverlay.classList.remove('fade-out');
+  }
+};
+
+if (pinLockForm) {
+  pinLockForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const pin = pinCodeInput.value.trim();
+
+    if (pin === 'fw2569') {
+      pinErrorMsg.classList.add('hidden');
+      sessionStorage.setItem('dashboardPin', 'fw2569');
+      pinLockOverlay.classList.add('fade-out');
+      fetchDashboardData();
+    } else {
+      pinErrorMsg.classList.remove('hidden');
+      pinCardBox.classList.add('shake');
+      pinCodeInput.value = '';
+      pinCodeInput.focus();
+      
+      setTimeout(() => {
+        pinCardBox.classList.remove('shake');
+      }, 400);
+    }
+  });
+}
+
 // Initial Load
 document.addEventListener('DOMContentLoaded', () => {
   updateAdminUI();
-  fetchDashboardData();
+  checkPinLockStatus();
   // Poll server status/new files every 10 seconds to keep UI up-to-date
-  setInterval(fetchDashboardData, 10000);
+  setInterval(() => {
+    const pin = sessionStorage.getItem('dashboardPin');
+    if (pin) {
+      fetchDashboardData();
+    }
+  }, 10000);
 });
