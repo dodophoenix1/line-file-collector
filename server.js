@@ -666,6 +666,11 @@ const verifyDashboardPin = (req, res, next) => {
   }
 };
 
+// GET /ping (Public keep-alive endpoint, does not require PIN)
+app.get('/ping', (req, res) => {
+  res.json({ status: 'ok', time: new Date().toISOString() });
+});
+
 // GET /api/files (Reads from MySQL if connected, otherwise falls back to Drive API)
 app.get('/api/files', verifyDashboardPin, async (req, res) => {
   try {
