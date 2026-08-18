@@ -14,9 +14,14 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 3000;
 const PUBLIC_ORIGIN = (process.env.PUBLIC_ORIGIN || '').replace(/\/$/, '');
-const DASHBOARD_PIN = process.env.DASHBOARD_PIN || '';
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '';
-const AUTH_SESSION_SECRET = process.env.AUTH_SESSION_SECRET || '';
+// Backward-compatible migration for the existing Render service. Keep these
+// separate in production; the fallback only prevents an old deployment from
+// becoming unusable before its new environment variables are added.
+const DASHBOARD_PIN = process.env.DASHBOARD_PIN || ADMIN_PASSWORD;
+// If Render has not been given a session secret yet, use an ephemeral secret.
+// Cookies are invalidated on restart, but no secret is stored in source code.
+const AUTH_SESSION_SECRET = process.env.AUTH_SESSION_SECRET || crypto.randomBytes(32).toString('hex');
 const SESSION_MAX_AGE_SECONDS = 8 * 60 * 60;
 const parsedMaxFileBytes = Number.parseInt(process.env.MAX_FILE_BYTES || '', 10);
 const MAX_FILE_BYTES = Number.isFinite(parsedMaxFileBytes) && parsedMaxFileBytes > 0
