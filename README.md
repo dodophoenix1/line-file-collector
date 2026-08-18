@@ -79,6 +79,8 @@
 ## 🔐 Security notes
 
 - Dashboard และ Admin ใช้ HttpOnly, SameSite session cookies; ห้ามเก็บรหัสผ่านใน `localStorage` หรือส่งรหัสผ่านซ้ำในคำสั่งลบ
+- ครูใช้ `DASHBOARD_PIN` แยกจาก `ADMIN_PASSWORD`; Admin ที่ login แล้วสามารถเปลี่ยน Teacher PIN จากปุ่ม `เปลี่ยน Teacher PIN` ได้
+- หากฐานข้อมูล MySQL เชื่อมต่ออยู่ Teacher PIN ที่เปลี่ยนจากหน้า Admin จะถูกบันทึกในตาราง `app_settings` และอยู่รอดหลัง restart
 - Local files ไม่ได้เปิดผ่าน `/downloads` แบบสาธารณะ แต่ต้องผ่าน Dashboard session
 - ตั้งค่า `PUBLIC_ORIGIN` เป็นโดเมนจริงเพื่อปิด CORS แบบ wildcard
 - ตั้งค่า `LINE_CHANNEL_SECRET` เสมอ ระบบจะปฏิเสธ webhook หากตรวจลายเซ็นไม่ได้

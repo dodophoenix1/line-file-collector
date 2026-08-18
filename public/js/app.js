@@ -84,6 +84,12 @@ const adminLoginForm = document.getElementById('admin-login-form');
 const adminPasswordInput = document.getElementById('admin-password-input');
 const loginErrorMessage = document.getElementById('login-error-message');
 const cancelLoginBtn = document.getElementById('cancel-login-btn');
+const changeTeacherPinBtn = document.getElementById('change-teacher-pin-btn');
+const teacherPinModal = document.getElementById('teacher-pin-modal');
+const teacherPinForm = document.getElementById('teacher-pin-form');
+const teacherPinInput = document.getElementById('teacher-pin-input');
+const teacherPinMessage = document.getElementById('teacher-pin-message');
+const cancelTeacherPinBtn = document.getElementById('cancel-teacher-pin-btn');
 
 // Lightbox Elements
 const imgLightbox = document.getElementById('image-lightbox-modal');
@@ -285,6 +291,7 @@ const updateAdminUI = () => {
     adminLoginPillBtn.style.background = 'rgba(16, 185, 129, 0.1)';
     adminLoginPillBtn.title = 'คลิกเพื่อออกจากระบบ (Log Out)';
     if (guideTab) guideTab.style.display = 'flex';
+    if (changeTeacherPinBtn) changeTeacherPinBtn.hidden = false;
   } else {
     adminLockDot.className = 'pulse-dot warning';
     adminStatusText.textContent = '🔒 Admin Login';
@@ -298,6 +305,7 @@ const updateAdminUI = () => {
         if (docTab) docTab.click();
       }
     }
+    if (changeTeacherPinBtn) changeTeacherPinBtn.hidden = true;
   }
   renderAllPanes();
 };
@@ -757,6 +765,7 @@ registerLightDismiss(imgLightbox);
 registerLightDismiss(vidLightbox);
 registerLightDismiss(deleteConfirmModal);
 registerLightDismiss(adminLoginModal);
+registerLightDismiss(teacherPinModal);
 
 // Confirm delete button triggers
 cancelDeleteBtn.addEventListener('click', () => deleteConfirmModal.close());
@@ -813,6 +822,49 @@ adminLoginForm.addEventListener('submit', async (e) => {
 cancelLoginBtn.addEventListener('click', () => {
   adminLoginModal.close();
 });
+
+changeTeacherPinBtn.addEventListener('click', () => {
+  teacherPinInput.value = '';
+  teacherPinMessage.textContent = '';
+  teacherPinMessage.classList.add('hidden');
+  teacherPinModal.showModal();
+  teacherPinInput.focus();
+});
+
+teacherPinForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const pin = teacherPinInput.value.trim();
+  if (pin.length < 6) {
+    teacherPinMessage.textContent = 'Teacher PIN ต้องยาวอย่างน้อย 6 ตัวอักษร';
+    teacherPinMessage.style.color = '#ef4444';
+    teacherPinMessage.classList.remove('hidden');
+    return;
+  }
+
+  try {
+    const response = await fetch('/api/admin/dashboard-pin', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pin })
+    });
+    const result = await response.json();
+    if (!response.ok || !result.success) {
+      throw new Error(result.error || 'บันทึก Teacher PIN ไม่สำเร็จ');
+    }
+
+    teacherPinModal.close();
+    alert(result.persisted
+      ? 'เปลี่ยน Teacher PIN และบันทึกถาวรแล้ว'
+      : 'เปลี่ยน Teacher PIN แล้ว แต่ฐานข้อมูลยังไม่พร้อม จึงมีผลจนกว่า service จะ restart');
+  } catch (err) {
+    teacherPinMessage.textContent = err.message;
+    teacherPinMessage.style.color = '#ef4444';
+    teacherPinMessage.classList.remove('hidden');
+  }
+});
+
+cancelTeacherPinBtn.addEventListener('click', () => teacherPinModal.close());
 
 // PIN Lock Screen Logic
 const pinLockOverlay = document.getElementById('pin-lock-overlay');

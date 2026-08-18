@@ -59,6 +59,9 @@
           <span class="pulse-dot warning" id="admin-lock-dot"></span>
           <span class="status-text" id="admin-status-text">🔒 Admin Login</span>
         </button>
+        <button class="server-status-pill" id="change-teacher-pin-btn" hidden style="cursor: pointer; border: 1px solid rgba(59, 130, 246, 0.3); background: rgba(59, 130, 246, 0.1); color: #fff;">
+          🔑 เปลี่ยน Teacher PIN
+        </button>
 
         <!-- LINE API Status Pill -->
         <div class="server-status-pill" id="line-status-container">
@@ -393,6 +396,25 @@ GOOGLE_DRIVE_FOLDER_ID=วาง Google Drive Folder ID ที่คัดลอ
       <div class="confirm-buttons" style="margin-top: 15px;">
         <button type="button" id="cancel-login-btn" class="btn-secondary">ยกเลิก</button>
         <button type="submit" id="submit-login-btn" class="btn-primary-action" style="padding: 10px 24px; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; background: linear-gradient(135deg, var(--color-blue), var(--color-purple)); color: white;">เข้าสู่ระบบ</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Teacher PIN Management Modal -->
+  <dialog id="teacher-pin-modal" class="confirm-dialog">
+    <form method="dialog" class="confirm-wrapper" id="teacher-pin-form">
+      <div class="confirm-header">
+        <i class="fa-solid fa-key" style="color: var(--color-blue); font-size: 1.5rem;"></i>
+        <h2>เปลี่ยน Teacher PIN</h2>
+      </div>
+      <p style="margin: 10px 0 5px; color: var(--text-secondary); font-size: 0.9rem;">กำหนดรหัสสำหรับแจกให้ครูเข้า Dashboard (อย่างน้อย 6 ตัวอักษร) ไม่ใช่รหัสแอดมิน</p>
+      <div class="input-container" style="width: 100%; margin: 15px 0 5px;">
+        <input type="password" id="teacher-pin-input" placeholder="Teacher PIN ใหม่" minlength="6" maxlength="64" required style="width: 100%; padding: 12px 16px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.1); background: rgba(0,0,0,0.3); color: white; outline: none; font-size: 16px; transition: all 0.3s ease;">
+        <div id="teacher-pin-message" style="font-size: 0.85rem; margin-top: 5px; text-align: left;" class="hidden"></div>
+      </div>
+      <div class="confirm-buttons" style="margin-top: 15px;">
+        <button type="button" id="cancel-teacher-pin-btn" class="btn-secondary">ยกเลิก</button>
+        <button type="submit" id="submit-teacher-pin-btn" class="btn-primary-action" style="padding: 10px 24px; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; background: linear-gradient(135deg, var(--color-blue), var(--color-purple)); color: white;">บันทึก PIN</button>
       </div>
     </form>
   </dialog>

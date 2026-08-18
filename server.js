@@ -18,7 +18,8 @@ const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '';
 // Backward-compatible migration for the existing Render service. Keep these
 // separate in production; the fallback only prevents an old deployment from
 // becoming unusable before its new environment variables are added.
-const DASHBOARD_PIN = process.env.DASHBOARD_PIN || ADMIN_PASSWORD;
+let dashboardPin = process.env.DASHBOARD_PIN || process.env.TEACHER_PIN || ADMIN_PASSWORD;
+let dashboardSessionVersion = 0;
 // If Render has not been given a session secret yet, use an ephemeral secret.
 // Cookies are invalidated on restart, but no secret is stored in source code.
 const AUTH_SESSION_SECRET = process.env.AUTH_SESSION_SECRET || crypto.randomBytes(32).toString('hex');
@@ -79,7 +80,8 @@ const createSessionToken = (scope) => {
   if (!AUTH_SESSION_SECRET) return null;
   const issuedAt = Date.now();
   const expiresAt = issuedAt + SESSION_MAX_AGE_SECONDS * 1000;
-  const payload = `${scope}.${issuedAt}.${expiresAt}.${crypto.randomBytes(18).toString('hex')}`;
+  const version = scope === 'dashboard' ? dashboardSessionVersion : 0;
+  const payload = `${scope}.${issuedAt}.${expiresAt}.${version}.${crypto.randomBytes(18).toString('hex')}`;
   const encoded = Buffer.from(payload).toString('base64url');
   const signature = crypto.createHmac('sha256', AUTH_SESSION_SECRET).update(encoded).digest('base64url');
   return `${encoded}.${signature}`;
@@ -93,8 +95,12 @@ const verifySessionToken = (token, scope) => {
   if (!safeEqual(signature, expectedSignature)) return false;
 
   try {
-    const [tokenScope, issuedAt, expiresAt] = Buffer.from(encoded, 'base64url').toString('utf8').split('.');
-    return tokenScope === scope && Number.isFinite(Number(issuedAt)) && Number(expiresAt) > Date.now();
+    const [tokenScope, issuedAt, expiresAt, version] = Buffer.from(encoded, 'base64url').toString('utf8').split('.');
+    const currentVersion = scope === 'dashboard' ? String(dashboardSessionVersion) : '0';
+    return tokenScope === scope
+      && version === currentVersion
+      && Number.isFinite(Number(issuedAt))
+      && Number(expiresAt) > Date.now();
   } catch {
     return false;
   }
@@ -320,6 +326,23 @@ const initializeDatabase = async () => {
     } catch (alterErr) {
       console.log('ℹ️  MySQL Schema update note:', alterErr.message);
     }
+
+    await connection.query(`
+      CREATE TABLE IF NOT EXISTS \`app_settings\` (
+        \`setting_key\` VARCHAR(100) PRIMARY KEY,
+        \`setting_value\` TEXT NOT NULL,
+        \`updated_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+
+    const [settings] = await connection.query(
+      'SELECT setting_value FROM app_settings WHERE setting_key = ?',
+      ['dashboard_pin']
+    );
+    if (settings[0]?.setting_value) {
+      dashboardPin = String(settings[0].setting_value);
+      console.log('✅ Dashboard Teacher PIN: loaded from MySQL settings');
+    }
     
     connection.release();
     dbConnected = true;
@@ -328,6 +351,18 @@ const initializeDatabase = async () => {
     console.log('ℹ️  MySQL Database: falling back to direct Google Drive queries.');
     dbConnected = false;
   }
+};
+
+const persistDashboardPin = async (pin) => {
+  if (!dbPool || !dbConnected) return false;
+
+  await dbPool.query(
+    `INSERT INTO app_settings (setting_key, setting_value)
+     VALUES (?, ?)
+     ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value), updated_at = CURRENT_TIMESTAMP`,
+    ['dashboard_pin', pin]
+  );
+  return true;
 };
 
 // --- GOOGLE DRIVE SERVICE ---
@@ -846,11 +881,11 @@ app.get('/api/dashboard/session', (req, res) => {
 app.post('/api/dashboard/login', express.json({ limit: '16kb' }), (req, res) => {
   if (!hasSameOrigin(req)) return res.status(403).json({ success: false, error: 'Forbidden origin' });
   if (!requireConfiguredAuth(res)) return;
-  if (!DASHBOARD_PIN) return res.status(503).json({ success: false, error: 'Dashboard authentication is not configured' });
+  if (!dashboardPin) return res.status(503).json({ success: false, error: 'Dashboard authentication is not configured' });
 
   const key = `dashboard:${getRequestIp(req)}`;
   if (isRateLimited(key)) return res.status(429).json({ success: false, error: 'Too many attempts' });
-  if (!safeEqual(String(req.body?.pin || ''), DASHBOARD_PIN)) {
+  if (!safeEqual(String(req.body?.pin || ''), dashboardPin)) {
     return res.status(401).json({ success: false, error: 'Invalid PIN' });
   }
 
@@ -865,6 +900,29 @@ app.post('/api/dashboard/logout', (req, res) => {
 
 app.get('/api/admin/session', (req, res) => {
   res.json({ authenticated: Boolean(getSessionScope(req, 'admin')) });
+});
+
+app.get('/api/admin/dashboard-pin', verifyAdminSession, (req, res) => {
+  res.json({ success: true, configured: Boolean(dashboardPin), canPersist: Boolean(dbPool && dbConnected) });
+});
+
+app.post('/api/admin/dashboard-pin', express.json({ limit: '16kb' }), verifyAdminSession, async (req, res) => {
+  if (!hasSameOrigin(req)) return res.status(403).json({ success: false, error: 'Forbidden origin' });
+
+  const nextPin = String(req.body?.pin || '').trim();
+  if (nextPin.length < 6 || nextPin.length > 64) {
+    return res.status(400).json({ success: false, error: 'Teacher PIN must be between 6 and 64 characters' });
+  }
+
+  try {
+    dashboardPin = nextPin;
+    dashboardSessionVersion++;
+    const persisted = await persistDashboardPin(nextPin);
+    return res.json({ success: true, persisted });
+  } catch (err) {
+    console.error('[Auth] Failed to persist Teacher PIN:', err.message);
+    return res.status(500).json({ success: false, error: 'Unable to save Teacher PIN' });
+  }
 });
 
 // GET /ping (Public keep-alive endpoint, does not require PIN)
