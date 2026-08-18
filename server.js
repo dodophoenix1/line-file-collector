@@ -4,6 +4,7 @@ const dotenv = require('dotenv');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const { Readable } = require('stream');
 const { pipeline } = require('stream/promises');
 const { google } = require('googleapis');
 const mysql = require('mysql2/promise');
@@ -18,7 +19,9 @@ const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '';
 // Backward-compatible migration for the existing Render service. Keep these
 // separate in production; the fallback only prevents an old deployment from
 // becoming unusable before its new environment variables are added.
+const hashDashboardPin = (pin) => crypto.createHash('sha256').update(String(pin)).digest('hex');
 let dashboardPin = process.env.DASHBOARD_PIN || process.env.TEACHER_PIN || ADMIN_PASSWORD;
+let dashboardPinHash = dashboardPin ? hashDashboardPin(dashboardPin) : '';
 let dashboardSessionVersion = 0;
 // If Render has not been given a session secret yet, use an ephemeral secret.
 // Cookies are invalidated on restart, but no secret is stored in source code.
@@ -340,7 +343,11 @@ const initializeDatabase = async () => {
       ['dashboard_pin']
     );
     if (settings[0]?.setting_value) {
-      dashboardPin = String(settings[0].setting_value);
+      const storedValue = String(settings[0].setting_value);
+      dashboardPinHash = /^[a-f0-9]{64}$/i.test(storedValue)
+        ? storedValue.toLowerCase()
+        : hashDashboardPin(storedValue);
+      dashboardPin = '';
       console.log('✅ Dashboard Teacher PIN: loaded from MySQL settings');
     }
     
@@ -354,15 +361,19 @@ const initializeDatabase = async () => {
 };
 
 const persistDashboardPin = async (pin) => {
-  if (!dbPool || !dbConnected) return false;
+  const pinHash = hashDashboardPin(pin);
 
-  await dbPool.query(
-    `INSERT INTO app_settings (setting_key, setting_value)
-     VALUES (?, ?)
-     ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value), updated_at = CURRENT_TIMESTAMP`,
-    ['dashboard_pin', pin]
-  );
-  return true;
+  if (dbPool && dbConnected) {
+    await dbPool.query(
+      `INSERT INTO app_settings (setting_key, setting_value)
+       VALUES (?, ?)
+       ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value), updated_at = CURRENT_TIMESTAMP`,
+      ['dashboard_pin', pinHash]
+    );
+    return true;
+  }
+
+  return persistDashboardPinToDrive(pinHash);
 };
 
 // --- GOOGLE DRIVE SERVICE ---
@@ -444,6 +455,63 @@ const initializeGoogleDrive = () => {
   }
 };
 
+const TEACHER_PIN_SETTINGS_FILENAME = '.line-file-collector-settings.json';
+
+const findTeacherPinSettingsFile = async () => {
+  if (!driveClient) return null;
+
+  const folderId = process.env.GOOGLE_DRIVE_FOLDER_ID;
+  const escapedName = TEACHER_PIN_SETTINGS_FILENAME.replace(/'/g, "\\'");
+  const response = await driveClient.files.list({
+    q: `'${folderId}' in parents and name = '${escapedName}' and trashed = false`,
+    pageSize: 1,
+    fields: 'files(id,name)'
+  });
+  return response.data.files?.[0] || null;
+};
+
+const persistDashboardPinToDrive = async (pinHash) => {
+  if (!driveClient) return false;
+
+  const folderId = process.env.GOOGLE_DRIVE_FOLDER_ID;
+  const file = await findTeacherPinSettingsFile();
+  const body = JSON.stringify({ version: 1, dashboardPinHash: pinHash, updatedAt: new Date().toISOString() });
+  const media = { mimeType: 'application/json', body: Readable.from([body]) };
+
+  if (file?.id) {
+    await driveClient.files.update({ fileId: file.id, media, fields: 'id' });
+  } else {
+    await driveClient.files.create({
+      requestBody: { name: TEACHER_PIN_SETTINGS_FILENAME, parents: [folderId], mimeType: 'application/json' },
+      media,
+      fields: 'id'
+    });
+  }
+
+  return true;
+};
+
+const loadPersistedDashboardPin = async () => {
+  if (dbConnected || !driveClient) return false;
+
+  try {
+    const file = await findTeacherPinSettingsFile();
+    if (!file?.id) return false;
+
+    const response = await driveClient.files.get({ fileId: file.id, alt: 'media' }, { responseType: 'text' });
+    const settings = typeof response.data === 'string' ? JSON.parse(response.data) : response.data;
+    if (!/^[a-f0-9]{64}$/i.test(String(settings?.dashboardPinHash || ''))) return false;
+
+    dashboardPinHash = String(settings.dashboardPinHash).toLowerCase();
+    dashboardPin = '';
+    console.log('✅ Dashboard Teacher PIN: loaded from Google Drive settings');
+    return true;
+  } catch (err) {
+    console.error('[Auth] Failed to load Teacher PIN settings from Google Drive:', err.message);
+    return false;
+  }
+};
+
 const uploadToGoogleDrive = async (filePath, filename, mimeType) => {
   if (!driveClient) {
     throw new Error('Google Drive client is not active');
@@ -486,7 +554,7 @@ const deleteFromGoogleDrive = async (fileId) => {
 
 // Initialize Services
 initializeGoogleDrive();
-initializeDatabase();
+const databaseReady = initializeDatabase();
 
 // Enable middleware
 app.disable('x-powered-by');
@@ -881,11 +949,11 @@ app.get('/api/dashboard/session', (req, res) => {
 app.post('/api/dashboard/login', express.json({ limit: '16kb' }), (req, res) => {
   if (!hasSameOrigin(req)) return res.status(403).json({ success: false, error: 'Forbidden origin' });
   if (!requireConfiguredAuth(res)) return;
-  if (!dashboardPin) return res.status(503).json({ success: false, error: 'Dashboard authentication is not configured' });
+  if (!dashboardPinHash) return res.status(503).json({ success: false, error: 'Dashboard authentication is not configured' });
 
   const key = `dashboard:${getRequestIp(req)}`;
   if (isRateLimited(key)) return res.status(429).json({ success: false, error: 'Too many attempts' });
-  if (!safeEqual(String(req.body?.pin || ''), dashboardPin)) {
+  if (!safeEqual(hashDashboardPin(String(req.body?.pin || '')), dashboardPinHash)) {
     return res.status(401).json({ success: false, error: 'Invalid PIN' });
   }
 
@@ -903,7 +971,7 @@ app.get('/api/admin/session', (req, res) => {
 });
 
 app.get('/api/admin/dashboard-pin', verifyAdminSession, (req, res) => {
-  res.json({ success: true, configured: Boolean(dashboardPin), canPersist: Boolean(dbPool && dbConnected) });
+  res.json({ success: true, configured: Boolean(dashboardPinHash), canPersist: Boolean((dbPool && dbConnected) || driveClient) });
 });
 
 app.post('/api/admin/dashboard-pin', express.json({ limit: '16kb' }), verifyAdminSession, async (req, res) => {
@@ -915,7 +983,8 @@ app.post('/api/admin/dashboard-pin', express.json({ limit: '16kb' }), verifyAdmi
   }
 
   try {
-    dashboardPin = nextPin;
+    dashboardPin = '';
+    dashboardPinHash = hashDashboardPin(nextPin);
     dashboardSessionVersion++;
     const persisted = await persistDashboardPin(nextPin);
     return res.json({ success: true, persisted });
@@ -1307,6 +1376,7 @@ app.listen(PORT, () => {
   const hasGdrive = initializeGoogleDrive();
   if (hasGdrive) {
     console.log('✅ Google Drive integration: ACTIVE');
+    void databaseReady.finally(() => loadPersistedDashboardPin());
   } else {
     console.log('⚠️  Google Drive integration: INACTIVE (Missing credential files or Folder ID)');
     console.log('   Add google-credentials.json and GOOGLE_DRIVE_FOLDER_ID in .env to link Google Drive.');
