@@ -805,17 +805,23 @@ adminLoginForm.addEventListener('submit', async (e) => {
     });
     
     const result = await response.json();
-    if (result.success) {
+    if (response.status === 401) {
+      loginErrorMessage.textContent = 'ADMIN_PASSWORD ไม่ถูกต้อง (Teacher PIN ใช้คนละช่อง)';
+      loginErrorMessage.classList.remove('hidden');
+      adminPasswordInput.focus();
+    } else if (response.ok && result.success) {
       isAdmin = true;
       adminLoginModal.close();
       updateAdminUI();
     } else {
+      loginErrorMessage.textContent = result.error || 'เข้าสู่ระบบ Admin ไม่สำเร็จ';
       loginErrorMessage.classList.remove('hidden');
       adminPasswordInput.focus();
     }
   } catch (err) {
     console.error('Error logging in:', err);
-    alert('เกิดข้อผิดพลาดในการเชื่อมต่อเซิร์ฟเวอร์');
+    loginErrorMessage.textContent = 'เชื่อมต่อเซิร์ฟเวอร์ไม่สำเร็จ กรุณาลองใหม่';
+    loginErrorMessage.classList.remove('hidden');
   }
 });
 
