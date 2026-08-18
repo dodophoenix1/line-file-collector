@@ -5,3 +5,6 @@ google-client-secret.json
 google-credentials.json
 downloads/
 admin_notes.md
+*.log
+*.pem
+*.key

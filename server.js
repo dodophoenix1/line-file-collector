@@ -4,19 +4,115 @@ const dotenv = require('dotenv');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-const { Readable } = require('stream');
+const { pipeline } = require('stream/promises');
 const { google } = require('googleapis');
 const mysql = require('mysql2/promise');
 
 // Load environment variables
 dotenv.config();
 
-const app = reportExpressServer = express();
+const app = express();
 const PORT = process.env.PORT || 3000;
+const PUBLIC_ORIGIN = (process.env.PUBLIC_ORIGIN || '').replace(/\/$/, '');
+const DASHBOARD_PIN = process.env.DASHBOARD_PIN || '';
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '';
+const AUTH_SESSION_SECRET = process.env.AUTH_SESSION_SECRET || '';
+const SESSION_MAX_AGE_SECONDS = 8 * 60 * 60;
+const parsedMaxFileBytes = Number.parseInt(process.env.MAX_FILE_BYTES || '', 10);
+const MAX_FILE_BYTES = Number.isFinite(parsedMaxFileBytes) && parsedMaxFileBytes > 0
+  ? parsedMaxFileBytes
+  : 200 * 1024 * 1024;
+const AUTH_COOKIE_NAMES = {
+  dashboard: 'lfc_dashboard',
+  admin: 'lfc_admin'
+};
 
 // Ensure base directories exist
 const DOWNLOADS_DIR = path.join(__dirname, 'downloads');
 const CATEGORIES = ['documents', 'images', 'videos', 'others'];
+
+const safeEqual = (candidate, expected) => {
+  if (typeof candidate !== 'string' || typeof expected !== 'string' || candidate.length !== expected.length) {
+    return false;
+  }
+
+  return crypto.timingSafeEqual(Buffer.from(candidate), Buffer.from(expected));
+};
+
+const getRequestIp = (req) => {
+  const forwarded = req.headers['x-forwarded-for'];
+  return (typeof forwarded === 'string' ? forwarded.split(',')[0] : forwarded?.[0])?.trim() || req.socket.remoteAddress || 'unknown';
+};
+
+const authAttempts = new Map();
+const isRateLimited = (key, limit = 10, windowMs = 60_000) => {
+  const now = Date.now();
+  const current = authAttempts.get(key);
+  if (!current || now - current.startedAt >= windowMs) {
+    authAttempts.set(key, { startedAt: now, count: 1 });
+    return false;
+  }
+
+  current.count += 1;
+  return current.count > limit;
+};
+
+const parseCookies = (cookieHeader = '') => cookieHeader.split(';').reduce((cookies, item) => {
+  const separator = item.indexOf('=');
+  if (separator < 0) return cookies;
+  const name = item.slice(0, separator).trim();
+  const value = item.slice(separator + 1).trim();
+  try {
+    cookies[name] = decodeURIComponent(value);
+  } catch {
+    cookies[name] = value;
+  }
+  return cookies;
+}, {});
+
+const createSessionToken = (scope) => {
+  if (!AUTH_SESSION_SECRET) return null;
+  const issuedAt = Date.now();
+  const expiresAt = issuedAt + SESSION_MAX_AGE_SECONDS * 1000;
+  const payload = `${scope}.${issuedAt}.${expiresAt}.${crypto.randomBytes(18).toString('hex')}`;
+  const encoded = Buffer.from(payload).toString('base64url');
+  const signature = crypto.createHmac('sha256', AUTH_SESSION_SECRET).update(encoded).digest('base64url');
+  return `${encoded}.${signature}`;
+};
+
+const verifySessionToken = (token, scope) => {
+  if (!token || !AUTH_SESSION_SECRET) return false;
+  const [encoded, signature] = token.split('.');
+  if (!encoded || !signature) return false;
+  const expectedSignature = crypto.createHmac('sha256', AUTH_SESSION_SECRET).update(encoded).digest('base64url');
+  if (!safeEqual(signature, expectedSignature)) return false;
+
+  try {
+    const [tokenScope, issuedAt, expiresAt] = Buffer.from(encoded, 'base64url').toString('utf8').split('.');
+    return tokenScope === scope && Number.isFinite(Number(issuedAt)) && Number(expiresAt) > Date.now();
+  } catch {
+    return false;
+  }
+};
+
+const setAuthCookie = (req, res, name, value) => {
+  const secure = req.secure || req.headers['x-forwarded-proto'] === 'https';
+  const securePart = secure ? '; Secure' : '';
+  res.setHeader('Set-Cookie', `${name}=${encodeURIComponent(value)}; Max-Age=${SESSION_MAX_AGE_SECONDS}; Path=/; HttpOnly; SameSite=Strict${securePart}`);
+};
+
+const clearAuthCookie = (req, res, name) => {
+  const secure = req.secure || req.headers['x-forwarded-proto'] === 'https';
+  const securePart = secure ? '; Secure' : '';
+  res.setHeader('Set-Cookie', `${name}=; Max-Age=0; Path=/; HttpOnly; SameSite=Strict${securePart}`);
+};
+
+const hasSameOrigin = (req) => {
+  const origin = req.headers.origin;
+  if (!origin) return true;
+  const protocol = req.secure || req.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http';
+  return origin === `${protocol}://${req.get('host')}`;
+};
 
 // Stats structure to track in-memory
 const stats = {
@@ -60,17 +156,40 @@ initializeFolders();
 const isLineConfigured = () => {
   const token = process.env.LINE_CHANNEL_ACCESS_TOKEN;
   const secret = process.env.LINE_CHANNEL_SECRET;
-  return token && 
+  return Boolean(token &&
          token !== 'your_line_channel_access_token_here' && 
          token.trim() !== '' &&
          secret && 
          secret !== 'your_line_channel_secret_here' && 
-         secret.trim() !== '';
+         secret.trim() !== '');
 };
 
 // Utility functions
 const sanitizeFilename = (filename) => {
-  return filename.replace(/[\\/:*?"<>|]/g, '_');
+  const raw = String(filename || '').normalize('NFKC');
+  const base = path.basename(raw);
+  const sanitized = base
+    .replace(/[\\/:*?"<>|]/g, '_')
+    .replace(/\.\.+/g, '_')
+    .replace(/[\u0000-\u001f\u007f]/g, '_')
+    .trim();
+
+  return (sanitized || `file_${Date.now()}`).slice(0, 180);
+};
+
+const reserveUniqueFile = (directory, requestedFilename) => {
+  const safeFilename = sanitizeFilename(requestedFilename);
+  const extension = path.extname(safeFilename);
+  const stem = path.basename(safeFilename, extension).slice(0, 150);
+  let filename = safeFilename;
+  let counter = 0;
+
+  while (fs.existsSync(path.join(directory, filename))) {
+    counter += 1;
+    filename = `${stem}_${counter}${extension}`.slice(0, 180);
+  }
+
+  return { filename, path: path.join(directory, filename) };
 };
 
 const formatBytes = (bytes, decimals = 2) => {
@@ -291,7 +410,7 @@ const uploadToGoogleDrive = async (filePath, filename, mimeType) => {
   }
 
   const folderId = process.env.GOOGLE_DRIVE_FOLDER_ID;
-  console.log(`[Google Drive] Uploading "${filename}" (${mimeType}) to folder ID: ${folderId}...`);
+  console.log(`[Google Drive] Uploading "${filename}" (${mimeType})...`);
 
   const response = await driveClient.files.create({
     requestBody: {
@@ -329,19 +448,37 @@ const deleteFromGoogleDrive = async (fileId) => {
 initializeGoogleDrive();
 initializeDatabase();
 
-// Enable Middleware
-app.use(cors());
-app.use(express.static(path.join(__dirname, 'public')));
-app.use('/downloads', express.static(DOWNLOADS_DIR));
+// Enable middleware
+app.disable('x-powered-by');
+app.use(cors(PUBLIC_ORIGIN ? {
+  origin: PUBLIC_ORIGIN,
+  credentials: true,
+  methods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type']
+} : { origin: false }));
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  res.setHeader('Content-Security-Policy', "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; script-src 'self'; connect-src 'self'; img-src 'self' data: https:; media-src 'self' https:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com; font-src 'self' https://fonts.gstatic.com https://cdnjs.cloudflare.com");
+  if (req.secure || req.headers['x-forwarded-proto'] === 'https') {
+    res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  }
+  if (req.path.startsWith('/api/')) {
+    res.setHeader('Cache-Control', 'no-store');
+  }
+  next();
+});
+app.use(express.static(path.join(__dirname, 'public'), { dotfiles: 'deny' }));
 
 // Native Line signature verification
-const verifyLineSignature = (req, res, buf, encoding) => {
+const verifyLineSignature = (req, res, buf) => {
   req.rawBody = buf;
 };
 
 // LINE Webhook route
-app.post('/webhook', express.json({ verify: verifyLineSignature }), async (req, res) => {
-  stats.webhookCalls++;
+app.post('/webhook', express.json({ verify: verifyLineSignature, limit: '256kb' }), async (req, res) => {
   
   // 1. Signature Verification
   const signature = req.headers['x-line-signature'];
@@ -353,39 +490,44 @@ app.post('/webhook', express.json({ verify: verifyLineSignature }), async (req, 
 
   const channelSecret = process.env.LINE_CHANNEL_SECRET;
   if (!channelSecret || channelSecret === 'your_line_channel_secret_here') {
-    console.warn('[Webhook] LINE_CHANNEL_SECRET is not configured. Skipping verification (Testing mode).');
+    console.error('[Webhook] LINE_CHANNEL_SECRET is not configured; refusing to process webhook.');
+    stats.errors++;
+    return res.status(503).send('Webhook verification is not configured');
   } else {
     const hash = crypto
       .createHmac('sha256', channelSecret)
       .update(req.rawBody)
       .digest('base64');
-      
-    if (hash !== signature) {
+
+    if (!safeEqual(hash, signature)) {
       console.error('[Webhook] Signature verification failed.');
       stats.errors++;
       return res.status(401).send('Invalid signature');
     }
   }
 
+  stats.webhookCalls++;
+
   const events = req.body.events;
   if (!events || !Array.isArray(events)) {
     return res.sendStatus(200);
   }
 
-  // 2. Process events
-  for (const event of events) {
-    stats.lastEventTime = new Date();
-    if (event.type === 'message') {
-      try {
-        await handleMessageEvent(event);
-      } catch (err) {
-        console.error(`[Webhook] Error handling event ${event.message.id}:`, err);
-        stats.errors++;
-      }
-    }
-  }
-
+  // 2. Acknowledge LINE before doing network/file work. LINE retries webhooks
+  // that take too long, while the actual processing can safely continue.
   res.sendStatus(200);
+
+  void Promise.all(events.map(async (event) => {
+    stats.lastEventTime = new Date();
+    if (event.type !== 'message') return;
+
+    try {
+      await handleMessageEvent(event);
+    } catch (err) {
+      console.error(`[Webhook] Error handling event ${event.message?.id || 'unknown'}:`, err);
+      stats.errors++;
+    }
+  }));
 });
 
 // Download helper using native fetch
@@ -408,16 +550,25 @@ const downloadLineMessageContent = async (messageId, outputPath) => {
   }
 
   const contentType = response.headers.get('content-type');
-  const fileStream = fs.createWriteStream(outputPath);
-  
-  await new Promise((resolve, reject) => {
-    Readable.fromWeb(response.body).pipe(fileStream);
-    fileStream.on('finish', resolve);
-    fileStream.on('error', (err) => {
-      fileStream.close();
-      reject(err);
+  const contentLength = Number(response.headers.get('content-length') || 0);
+  if (contentLength > MAX_FILE_BYTES) {
+    throw new Error(`LINE file exceeds the ${MAX_FILE_BYTES}-byte limit`);
+  }
+
+  try {
+    let receivedBytes = 0;
+    const source = Readable.fromWeb(response.body);
+    source.on('data', (chunk) => {
+      receivedBytes += chunk.length;
+      if (receivedBytes > MAX_FILE_BYTES) {
+        source.destroy(new Error(`LINE file exceeds the ${MAX_FILE_BYTES}-byte limit`));
+      }
     });
-  });
+    await pipeline(source, fs.createWriteStream(outputPath, { flags: 'wx' }));
+  } catch (err) {
+    if (fs.existsSync(outputPath)) fs.unlinkSync(outputPath);
+    throw err;
+  }
 
   return contentType;
 };
@@ -472,14 +623,20 @@ const handleMessageEvent = async (event) => {
   // Handle different message types
   if (msgType === 'file') {
     const rawFilename = msg.fileName || `file_${msg.id}`;
-    filename = sanitizeFilename(rawFilename);
-    category = getCategoryFromFilename(filename);
-    
-    const size = msg.fileSize || 0;
-    sizeText = formatBytes(size);
+    const declaredSize = Number(msg.fileSize || 0);
+    if (declaredSize > MAX_FILE_BYTES) {
+      throw new Error(`LINE file exceeds the ${MAX_FILE_BYTES}-byte limit`);
+    }
 
+    const safeRawFilename = sanitizeFilename(rawFilename);
+    category = getCategoryFromFilename(safeRawFilename);
     const destDir = path.join(DOWNLOADS_DIR, category);
-    finalPath = path.join(destDir, filename);
+    const reservation = reserveUniqueFile(destDir, safeRawFilename);
+    filename = reservation.filename;
+    finalPath = reservation.path;
+
+    const size = declaredSize;
+    sizeText = formatBytes(size);
     mimeType = getMimeFromExtension(filename);
 
     console.log(`[File Collector] Downloading file: "${filename}" into "${category}" folder...`);
@@ -651,31 +808,89 @@ const handleMessageEvent = async (event) => {
 
 // --- REST API FOR DASHBOARD ---
 
-// Middleware to verify Dashboard PIN (Security Lock)
-const verifyDashboardPin = (req, res, next) => {
-
-  // If running in Demo Mode, allow unauthenticated access to showcase mock files
-  if (process.env.DEMO_MODE === 'true') {
-    return next();
-  }
-
-  const pin = req.headers['x-dashboard-pin'] || req.query.pin;
-  const expectedPin = 'fw2569';
-
-  if (pin === expectedPin) {
-    next();
-  } else {
-    res.status(401).json({ success: false, error: 'Unauthorized: Invalid PIN' });
-  }
+// Authentication middleware. Secrets stay server-side; the browser receives only short-lived HttpOnly cookies.
+const getSessionScope = (req, scope) => {
+  const cookies = parseCookies(req.headers.cookie);
+  return verifySessionToken(cookies[AUTH_COOKIE_NAMES[scope]], scope);
 };
+
+const verifyDashboardSession = (req, res, next) => {
+  if (getSessionScope(req, 'dashboard')) return next();
+  return res.status(401).json({ success: false, error: 'Unauthorized' });
+};
+
+const verifyAdminSession = (req, res, next) => {
+  if (getSessionScope(req, 'admin')) return next();
+  return res.status(401).json({ success: false, error: 'Unauthorized' });
+};
+
+const requireConfiguredAuth = (res) => {
+  if (!AUTH_SESSION_SECRET || AUTH_SESSION_SECRET.length < 32) {
+    res.status(503).json({ success: false, error: 'Authentication is not configured' });
+    return false;
+  }
+  return true;
+};
+
+const localDownloadUrl = (category, filename) => `/api/download/${encodeURIComponent(category)}/${encodeURIComponent(filename)}`;
+
+app.get('/api/dashboard/session', (req, res) => {
+  res.json({ authenticated: Boolean(getSessionScope(req, 'dashboard')) });
+});
+
+app.post('/api/dashboard/login', express.json({ limit: '16kb' }), (req, res) => {
+  if (!hasSameOrigin(req)) return res.status(403).json({ success: false, error: 'Forbidden origin' });
+  if (!requireConfiguredAuth(res)) return;
+  if (!DASHBOARD_PIN) return res.status(503).json({ success: false, error: 'Dashboard authentication is not configured' });
+
+  const key = `dashboard:${getRequestIp(req)}`;
+  if (isRateLimited(key)) return res.status(429).json({ success: false, error: 'Too many attempts' });
+  if (!safeEqual(String(req.body?.pin || ''), DASHBOARD_PIN)) {
+    return res.status(401).json({ success: false, error: 'Invalid PIN' });
+  }
+
+  setAuthCookie(req, res, AUTH_COOKIE_NAMES.dashboard, createSessionToken('dashboard'));
+  return res.json({ success: true });
+});
+
+app.post('/api/dashboard/logout', (req, res) => {
+  clearAuthCookie(req, res, AUTH_COOKIE_NAMES.dashboard);
+  res.json({ success: true });
+});
+
+app.get('/api/admin/session', (req, res) => {
+  res.json({ authenticated: Boolean(getSessionScope(req, 'admin')) });
+});
 
 // GET /ping (Public keep-alive endpoint, does not require PIN)
 app.get('/ping', (req, res) => {
   res.json({ status: 'ok', time: new Date().toISOString() });
 });
 
+// Local files are never served as a public static directory. They require the dashboard session.
+app.get('/api/download/:category/:filename', verifyDashboardSession, (req, res) => {
+  const { category } = req.params;
+  if (!CATEGORIES.includes(category)) {
+    return res.status(400).json({ success: false, error: 'Invalid category' });
+  }
+
+  const filename = sanitizeFilename(req.params.filename);
+  const localPath = path.resolve(DOWNLOADS_DIR, category, filename);
+  const categoryRoot = path.resolve(DOWNLOADS_DIR, category) + path.sep;
+  if (!localPath.startsWith(categoryRoot)) {
+    return res.status(400).json({ success: false, error: 'Invalid filename' });
+  }
+
+  if (!fs.existsSync(localPath)) {
+    return res.status(404).json({ success: false, error: 'File not found' });
+  }
+
+  res.setHeader('Content-Disposition', `attachment; filename="${filename.replace(/"/g, '')}"`);
+  return res.sendFile(localPath, { dotfiles: 'deny', cacheControl: false });
+});
+
 // GET /api/files (Reads from MySQL if connected, otherwise falls back to Drive API)
-app.get('/api/files', verifyDashboardPin, async (req, res) => {
+app.get('/api/files', verifyDashboardSession, async (req, res) => {
   try {
     const results = { documents: [], images: [], videos: [], others: [] };
     
@@ -697,7 +912,7 @@ app.get('/api/files', verifyDashboardPin, async (req, res) => {
               size: parseInt(file.size),
               sizeFormatted: file.size_formatted,
               createdAt: file.created_at,
-              url: file.drive_url,
+              url: file.drive_url || localDownloadUrl(category, file.name),
               thumbnailUrl: file.thumbnail_url,
               driveFileId: file.drive_file_id,
               driveUrl: file.drive_url
@@ -757,27 +972,30 @@ app.get('/api/files', verifyDashboardPin, async (req, res) => {
 });
 
 // POST /api/admin/login
-app.post('/api/admin/login', express.json(), (req, res) => {
-  const { password } = req.body;
-  const adminPassword = process.env.ADMIN_PASSWORD || 'admin123';
-  
-  if (password === adminPassword) {
-    res.json({ success: true });
-  } else {
-    res.status(401).json({ success: false, error: 'รหัสผ่านไม่ถูกต้อง' });
+app.post('/api/admin/login', express.json({ limit: '16kb' }), (req, res) => {
+  if (!hasSameOrigin(req)) return res.status(403).json({ success: false, error: 'Forbidden origin' });
+  if (!requireConfiguredAuth(res)) return;
+  if (!ADMIN_PASSWORD) return res.status(503).json({ success: false, error: 'Admin authentication is not configured' });
+
+  const key = `admin:${getRequestIp(req)}`;
+  if (isRateLimited(key)) return res.status(429).json({ success: false, error: 'Too many attempts' });
+  if (!safeEqual(String(req.body?.password || ''), ADMIN_PASSWORD)) {
+    return res.status(401).json({ success: false, error: 'รหัสผ่านไม่ถูกต้อง' });
   }
+
+  setAuthCookie(req, res, AUTH_COOKIE_NAMES.admin, createSessionToken('admin'));
+  return res.json({ success: true });
+});
+
+app.post('/api/admin/logout', (req, res) => {
+  clearAuthCookie(req, res, AUTH_COOKIE_NAMES.admin);
+  res.json({ success: true });
 });
 
 // DELETE /api/files/:category/:filename (Deletes files from Google Drive and MySQL)
-app.delete('/api/files/:category/:filename', async (req, res) => {
+app.delete('/api/files/:category/:filename', verifyAdminSession, async (req, res) => {
+  if (!hasSameOrigin(req)) return res.status(403).json({ success: false, error: 'Forbidden origin' });
   const { category, filename } = req.params;
-  
-  // Auth Check
-  const clientPassword = req.headers['x-admin-password'];
-  const adminPassword = process.env.ADMIN_PASSWORD || 'admin123';
-  if (clientPassword !== adminPassword) {
-    return res.status(401).json({ success: false, error: 'คุณไม่มีสิทธิ์ในการลบไฟล์ (Unauthorized)' });
-  }
   
   if (!CATEGORIES.includes(category)) {
     return res.status(400).json({ success: false, error: 'Invalid category' });
@@ -823,7 +1041,7 @@ app.delete('/api/files/:category/:filename', async (req, res) => {
 });
 
 // GET /api/status (Aggregates stats from MySQL or Google Drive)
-app.get('/api/status', verifyDashboardPin, async (req, res) => {
+app.get('/api/status', verifyDashboardSession, async (req, res) => {
   // Check Demo Mode
   if (process.env.DEMO_MODE === 'true') {
     return res.json({
@@ -831,7 +1049,6 @@ app.get('/api/status', verifyDashboardPin, async (req, res) => {
       status: {
         lineConfigured: true,
         googleDriveConnected: true,
-        googleDriveFolderId: 'demo-folder-id-12345',
         port: PORT,
         totalFiles: 5,
         totalSize: 18051892,
@@ -919,7 +1136,6 @@ app.get('/api/status', verifyDashboardPin, async (req, res) => {
     status: {
       lineConfigured: isLineConfigured(),
       googleDriveConnected: !!driveClient,
-      googleDriveFolderId: process.env.GOOGLE_DRIVE_FOLDER_ID,
       port: PORT,
       totalFiles: totalFilesCount,
       totalSize: totalSpace,

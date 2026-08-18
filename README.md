@@ -2,7 +2,7 @@
 
 ระบบรวบรวมไฟล์จาก LINE Bot และอัปโหลดขึ้น Google Drive อัตโนมัติ พร้อมหน้าจอเว็บแอปสำหรับจัดการแบบพรีเมียม (ดีไซน์และพัฒนาระบบโดย N. Vetchagama)
 
-ระบบนี้ถูกอัปเกรดเป็น **Stateless Architecture (ระบบไร้สถานะ)** เรียบร้อยแล้ว ทำให้สามารถนำขึ้นไปรันออนไลน์แบบ 24 ชั่วโมงได้ฟรีบนผู้ให้บริการคลาวด์ เช่น Render.io หรือ Railway โดยที่คุณ **ไม่ต้องเปิดคอมพิวเตอร์ทิ้งไว้เลย** และข้อมูลไฟล์ทั้งหมดจะปลอดภัยบน Google Drive ของคุณเอง!
+ระบบนี้ใช้ **Stateless Architecture** สำหรับการรับไฟล์และเก็บข้อมูลบน Google Drive/MySQL โดยไม่ต้องเปิดคอมพิวเตอร์ทิ้งไว้ ทั้งนี้ต้องตั้งค่า secrets และสิทธิ์เข้าถึงให้ถูกต้องก่อนใช้งานจริง
 
 ---
 
@@ -10,7 +10,7 @@
 
 ### ขั้นตอนที่ 1: เตรียมโค้ดของคุณขึ้น GitHub
 1. สมัครใช้งาน [GitHub](https://github.com/) (หากมีอยู่แล้วสามารถใช้บัญชีเดิมได้เลย)
-2. ทำการสร้าง **Public Repository** (ระบบตั้งค่าบล็อกไฟล์ความลับทั้งหมดผ่าน `.gitignore` เรียบร้อยแล้ว จึงสามารถแชร์โค้ดเป็นสาธารณะได้อย่างปลอดภัย 100%) ขึ้นมาบน GitHub ตั้งชื่อว่า `line-file-collector`
+2. สร้าง Repository สำหรับโค้ดขึ้นมาบน GitHub ตั้งชื่อว่า `line-file-collector` และตรวจสอบว่าไม่มีไฟล์ความลับถูก commit
 3. อัปโหลดไฟล์โปรเจกต์นี้ทั้งหมดขึ้น GitHub **ยกเว้น** ไฟล์ความลับเหล่านี้ (ห้ามอัปโหลดเด็ดขาด!) ซึ่งระบบได้ตั้งค่าบล็อกในไฟล์ `.gitignore` ไว้แล้ว:
    - `node_modules/`
    - `.env`
@@ -38,14 +38,18 @@
 ---
 
 ### ขั้นตอนที่ 3: กรอกข้อมูลความลับในคลาวด์ (Environment Variables)
-กดปุ่ม **`Add Environment Variable`** เพื่อกรอกตัวแปรทั้งหมด 6 ตัวนี้ลงไปบนหน้าเว็บ Render:
+กดปุ่ม **`Add Environment Variable`** เพื่อกรอกตัวแปรต่อไปนี้ลงไปบนหน้าเว็บ Render:
 
 | Key (ชื่อตัวแปร) | Value (ค่าที่ต้องนำมาใส่) |
 | :--- | :--- |
+| `PUBLIC_ORIGIN` | URL จริงของเว็บ เช่น `https://line-file-collector.onrender.com` |
+| `DASHBOARD_PIN` | PIN ส่วนตัวสำหรับเข้า Dashboard ห้ามใส่ใน source code |
+| `AUTH_SESSION_SECRET` | สุ่มค่าอย่างน้อย 32 ตัวอักษร ใช้เซ็น HttpOnly session cookie |
 | `LINE_CHANNEL_ACCESS_TOKEN` | ค่า Token ของ LINE บอทของคุณ |
 | `LINE_CHANNEL_SECRET` | ค่า Secret ของ LINE บอทของคุณ |
 | `GOOGLE_DRIVE_FOLDER_ID` | ไอดีโฟลเดอร์ Google Drive ของคุณ |
-| `ADMIN_PASSWORD` | รหัสผ่านแอดมินสำหรับหน้าแดชบอร์ด (เช่น `admin123`) |
+| `ADMIN_PASSWORD` | รหัสผ่านแอดมินแบบยาวและไม่ซ้ำกับบริการอื่น |
+| `MAX_FILE_BYTES` | ขนาดไฟล์สูงสุดเป็น byte เช่น `209715200` |
 | `GOOGLE_TOKEN_JSON` | **คัดลอกข้อความทั้งหมด** ที่อยู่ภายในไฟล์ `google-token.json` มาวาง |
 | `GOOGLE_CLIENT_SECRET_JSON` | **คัดลอกข้อความทั้งหมด** ที่อยู่ภายในไฟล์ `google-client-secret.json` มาวาง |
 
@@ -65,10 +69,17 @@
 
 ## 💻 โหมดทดลองใช้งาน (Demo Mode)
 
-หากคุณต้องการรันเว็บแดชบอร์ดแสดงตัวอย่าง (Demo) เพื่อรีวิวหน้าตาเว็บโดยไม่ต้องเชื่อมต่อกับ LINE หรือ Google Drive จริง:
+หากคุณต้องการรันเว็บแดชบอร์ดแสดงตัวอย่าง (Demo) เพื่อรีวิวหน้าตาเว็บโดยไม่ต้องเชื่อมต่อกับ LINE หรือ Google Drive จริง โหมดนี้ยังต้องใช้ `DASHBOARD_PIN` และ `AUTH_SESSION_SECRET` เพื่อป้องกันไม่ให้ข้อมูล Demo เปิดสาธารณะ:
 - เพียงตั้งค่าตัวแปรสภาพแวดล้อม (Environment Variable) ในระบบคลาวด์:
   `DEMO_MODE=true`
 - ระบบจะเปิดโหมด Demo และแสดงข้อมูลไฟล์จำลองขึ้นบนหน้าแดชบอร์ดให้โดยอัตโนมัติทันที!
+
+## 🔐 Security notes
+
+- Dashboard และ Admin ใช้ HttpOnly, SameSite session cookies; ห้ามเก็บรหัสผ่านใน `localStorage` หรือส่งรหัสผ่านซ้ำในคำสั่งลบ
+- Local files ไม่ได้เปิดผ่าน `/downloads` แบบสาธารณะ แต่ต้องผ่าน Dashboard session
+- ตั้งค่า `PUBLIC_ORIGIN` เป็นโดเมนจริงเพื่อปิด CORS แบบ wildcard
+- ตั้งค่า `LINE_CHANNEL_SECRET` เสมอ ระบบจะปฏิเสธ webhook หากตรวจลายเซ็นไม่ได้
 
 ---
 

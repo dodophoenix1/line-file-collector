@@ -12,8 +12,34 @@ let currentTab = 'documents';
 let searchQuery = '';
 let fileToDelete = null; // { category, filename }
 
-// Admin Authentication State
-let isAdmin = localStorage.getItem('adminPassword') ? true : false;
+// Admin Authentication State. Authentication is held in HttpOnly cookies; no password is stored in JavaScript.
+let isAdmin = false;
+
+const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (character) => ({
+  '&': '&amp;',
+  '<': '&lt;',
+  '>': '&gt;',
+  '"': '&quot;',
+  "'": '&#39;'
+}[character]));
+
+const safeUrl = (value) => {
+  if (!value) return '';
+  try {
+    const parsed = new URL(String(value), window.location.origin);
+    const allowedExternal = parsed.hostname === 'drive.google.com'
+      || parsed.hostname.endsWith('.google.com')
+      || parsed.hostname.endsWith('.googleusercontent.com')
+      || parsed.hostname.endsWith('.unsplash.com');
+    if (!['http:', 'https:'].includes(parsed.protocol)) return '';
+    if (parsed.origin !== window.location.origin && !allowedExternal) return '';
+    return parsed.href;
+  } catch {
+    return '';
+  }
+};
+
+const safeJsString = (value) => escapeHtml(JSON.stringify(String(value ?? '')));
 
 // Helper to get large thumbnail from Google Drive thumbnail URL
 const getLargeThumbnail = (url) => {
@@ -144,24 +170,13 @@ const formatRelativeTime = (dateString) => {
 
 // Fetch data from Server
 const fetchDashboardData = async () => {
-  const pin = sessionStorage.getItem('dashboardPin') || '';
-  if (!pin) {
-    document.getElementById('pin-lock-overlay').classList.remove('fade-out');
-    return;
-  }
-
   const refreshIcon = refreshBtn.querySelector('i');
   refreshIcon.classList.add('rotating');
   
   try {
-    const headers = {
-      'x-dashboard-pin': pin
-    };
-
     // 1. Fetch Status
-    const statusRes = await fetch('/api/status', { headers });
+    const statusRes = await fetch('/api/status', { credentials: 'same-origin' });
     if (statusRes.status === 401) {
-      sessionStorage.removeItem('dashboardPin');
       document.getElementById('pin-lock-overlay').classList.remove('fade-out');
       return;
     }
@@ -172,9 +187,8 @@ const fetchDashboardData = async () => {
     }
     
     // 2. Fetch Files
-    const filesRes = await fetch('/api/files', { headers });
+    const filesRes = await fetch('/api/files', { credentials: 'same-origin' });
     if (filesRes.status === 401) {
-      sessionStorage.removeItem('dashboardPin');
       document.getElementById('pin-lock-overlay').classList.remove('fade-out');
       return;
     }
@@ -335,15 +349,18 @@ const renderDocuments = () => {
   filtered.forEach(file => {
     const iconMeta = getFileIconClass(file.name);
     const tr = document.createElement('tr');
+    const safeName = escapeHtml(file.name);
+    const downloadUrl = escapeHtml(safeUrl(file.url) || '#');
+    const driveUrl = safeUrl(file.driveUrl);
     
     // Check if Google Drive url is available
-    const driveCellHTML = file.driveUrl 
-      ? `<a href="${file.driveUrl}" target="_blank" class="drive-pill-link"><i class="fa-brands fa-google-drive"></i> เปิดใน Drive</a>`
+    const driveCellHTML = driveUrl
+      ? `<a href="${escapeHtml(driveUrl)}" target="_blank" rel="noopener noreferrer" class="drive-pill-link"><i class="fa-brands fa-google-drive"></i> เปิดใน Drive</a>`
       : `<span class="no-drive">ไม่ได้อัปโหลด</span>`;
 
     // Only show the delete button if logged in as admin
     const deleteButtonHTML = isAdmin 
-      ? `<button class="action-btn btn-delete" title="ลบไฟล์" onclick="openDeleteConfirm('documents', '${file.name.replace(/'/g, "\\'")}')">
+      ? `<button class="action-btn btn-delete" title="ลบไฟล์" data-delete-category="documents" data-delete-filename="${safeName}">
           <i class="fa-solid fa-trash-can"></i>
          </button>`
       : '';
@@ -354,18 +371,18 @@ const renderDocuments = () => {
           <div class="file-icon-wrapper ${iconMeta.icon.split(' ')[1]}">
             <i class="fa-solid ${iconMeta.icon.split(' ')[0]}"></i>
           </div>
-          <span class="file-name-text" title="${file.name}">${file.name}</span>
+          <span class="file-name-text" title="${safeName}">${safeName}</span>
         </div>
       </td>
-      <td class="size-cell">${file.sizeFormatted}</td>
-      <td class="date-cell">${formatRelativeTime(file.createdAt)}</td>
+      <td class="size-cell">${escapeHtml(file.sizeFormatted)}</td>
+      <td class="date-cell">${escapeHtml(formatRelativeTime(file.createdAt))}</td>
       <td>${driveCellHTML}</td>
       <td class="actions-cell">
-        <a href="${file.url}" download class="action-btn btn-download" title="ดาวน์โหลดเก็บในเครื่อง">
+        <a href="${downloadUrl}" download class="action-btn btn-download" title="ดาวน์โหลดเก็บในเครื่อง">
           <i class="fa-solid fa-download"></i>
-        </a>
-        ${file.driveUrl ? `
-          <a href="${file.driveUrl}" target="_blank" class="action-btn btn-drive" title="เปิดใน Google Drive">
+          </a>
+        ${driveUrl ? `
+          <a href="${escapeHtml(driveUrl)}" target="_blank" rel="noopener noreferrer" class="action-btn btn-drive" title="เปิดใน Google Drive">
             <i class="fa-brands fa-google-drive"></i>
           </a>
         ` : ''}
@@ -373,6 +390,7 @@ const renderDocuments = () => {
       </td>
     `;
     tbody.appendChild(tr);
+    tr.querySelector('[data-delete-filename]')?.addEventListener('click', () => openDeleteConfirm('documents', file.name));
   });
 };
 
@@ -394,30 +412,32 @@ const renderImages = () => {
   filtered.forEach(file => {
     const card = document.createElement('div');
     card.className = 'image-card';
+    const safeName = escapeHtml(file.name);
+    const downloadUrl = safeUrl(file.url);
+    const driveUrl = safeUrl(file.driveUrl);
+    const previewUrl = safeUrl(file.thumbnailUrl || file.url);
     
     // Build buttons
-    const driveBtnHTML = file.driveUrl
-      ? `<a href="${file.driveUrl}" target="_blank" class="image-btn image-btn-drive" title="เปิดใน Google Drive" onclick="event.stopPropagation()">
+    const driveBtnHTML = driveUrl
+      ? `<a href="${escapeHtml(driveUrl)}" target="_blank" rel="noopener noreferrer" class="image-btn image-btn-drive" title="เปิดใน Google Drive" data-stop-propagation="true">
           <i class="fa-brands fa-google-drive"></i>
          </a>`
       : '';
 
     const deleteBtnHTML = isAdmin
-      ? `<button class="image-btn image-btn-delete" title="ลบไฟล์" onclick="event.stopPropagation(); openDeleteConfirm('images', '${file.name.replace(/'/g, "\\'")}')">
+      ? `<button class="image-btn image-btn-delete" title="ลบไฟล์" data-stop-propagation="true" data-delete-category="images" data-delete-filename="${safeName}">
           <i class="fa-solid fa-trash-can"></i>
          </button>`
       : '';
 
-    const previewUrl = file.thumbnailUrl || file.url;
-
     card.innerHTML = `
-      <img src="${previewUrl}" alt="${file.name}" loading="lazy" onerror="this.src='/images/placeholder.png'">
+      <img src="${escapeHtml(previewUrl || '/images/placeholder.png')}" alt="${safeName}" loading="lazy">
       <div class="image-overlay">
-        <span class="image-name" title="${file.name}">${file.name}</span>
+        <span class="image-name" title="${safeName}">${safeName}</span>
         <div class="image-details">
-          <span class="image-size">${file.sizeFormatted}</span>
+          <span class="image-size">${escapeHtml(file.sizeFormatted)}</span>
           <div class="image-card-actions">
-            <a href="${file.url}" download class="image-btn" title="ดาวน์โหลด" onclick="event.stopPropagation()">
+            <a href="${escapeHtml(downloadUrl || '#')}" download class="image-btn" title="ดาวน์โหลด" data-stop-propagation="true">
               <i class="fa-solid fa-download"></i>
             </a>
             ${driveBtnHTML}
@@ -427,8 +447,17 @@ const renderImages = () => {
       </div>
     `;
     
-    const lightboxUrl = file.thumbnailUrl ? getLargeThumbnail(file.thumbnailUrl) : file.url;
-    card.addEventListener('click', () => openImageLightbox(lightboxUrl, file.name, file.driveUrl));
+    const image = card.querySelector('img');
+    image.addEventListener('error', () => {
+      image.src = '/images/placeholder.png';
+      image.onerror = null;
+    });
+    card.querySelectorAll('[data-stop-propagation]').forEach((element) => {
+      element.addEventListener('click', (event) => event.stopPropagation());
+    });
+    card.querySelector('[data-delete-filename]')?.addEventListener('click', () => openDeleteConfirm('images', file.name));
+    const lightboxUrl = file.thumbnailUrl ? getLargeThumbnail(previewUrl) : downloadUrl;
+    card.addEventListener('click', () => openImageLightbox(lightboxUrl, file.name, driveUrl));
     gallery.appendChild(card);
   });
 };
@@ -451,25 +480,28 @@ const renderVideos = () => {
   filtered.forEach(file => {
     const card = document.createElement('div');
     card.className = 'video-card';
+    const safeName = escapeHtml(file.name);
+    const downloadUrl = safeUrl(file.url);
+    const driveUrl = safeUrl(file.driveUrl);
+    const posterUrl = file.thumbnailUrl ? getLargeThumbnail(safeUrl(file.thumbnailUrl)) : '';
+    const openUrl = driveUrl || downloadUrl;
     
-    const driveBtnHTML = file.driveUrl
-      ? `<a href="${file.driveUrl}" target="_blank" class="action-btn btn-drive" title="เปิดใน Google Drive">
+    const driveBtnHTML = driveUrl
+      ? `<a href="${escapeHtml(driveUrl)}" target="_blank" rel="noopener noreferrer" class="action-btn btn-drive" title="เปิดใน Google Drive">
           <i class="fa-brands fa-google-drive"></i>
          </a>`
       : '';
 
     const deleteBtnHTML = isAdmin
-      ? `<button class="action-btn btn-delete" title="ลบไฟล์" onclick="openDeleteConfirm('videos', '${file.name.replace(/'/g, "\\'")}')">
+      ? `<button class="action-btn btn-delete" title="ลบไฟล์" data-delete-category="videos" data-delete-filename="${safeName}">
           <i class="fa-solid fa-trash-can"></i>
          </button>`
       : '';
 
-    const posterUrl = file.thumbnailUrl ? getLargeThumbnail(file.thumbnailUrl) : '';
-
     card.innerHTML = `
-      <div class="video-thumbnail-wrapper" onclick="window.open('${file.driveUrl || file.url}', '_blank')">
+      <div class="video-thumbnail-wrapper" role="button" tabindex="0" aria-label="เปิดวิดีโอ">
         ${posterUrl 
-          ? `<img src="${posterUrl}" class="video-poster" alt="${file.name}" style="width: 100%; height: 100%; object-fit: cover;">` 
+          ? `<img src="${escapeHtml(posterUrl)}" class="video-poster" alt="${safeName}" style="width: 100%; height: 100%; object-fit: cover;">`
           : `<div class="video-placeholder-icon" style="display: flex; align-items: center; justify-content: center; height: 100%; font-size: 2rem; color: rgba(255,255,255,0.4);"><i class="fa-solid fa-video"></i></div>`
         }
         <div class="video-play-btn">
@@ -477,11 +509,11 @@ const renderVideos = () => {
         </div>
       </div>
       <div class="video-info">
-        <span class="video-title" title="${file.name}">${file.name}</span>
+        <span class="video-title" title="${safeName}">${safeName}</span>
         <div class="video-meta">
-          <span class="video-size-text">${file.sizeFormatted}</span>
+          <span class="video-size-text">${escapeHtml(file.sizeFormatted)}</span>
           <div class="video-actions">
-            <a href="${file.url}" download class="action-btn btn-download" title="ดาวน์โหลด">
+            <a href="${escapeHtml(downloadUrl || '#')}" download class="action-btn btn-download" title="ดาวน์โหลด" data-stop-propagation="true">
               <i class="fa-solid fa-download"></i>
             </a>
             ${driveBtnHTML}
@@ -490,6 +522,17 @@ const renderVideos = () => {
         </div>
       </div>
     `;
+    const thumbnail = card.querySelector('.video-thumbnail-wrapper');
+    thumbnail.addEventListener('click', () => {
+      if (openUrl) window.open(openUrl, '_blank', 'noopener,noreferrer');
+    });
+    thumbnail.addEventListener('keydown', (event) => {
+      if ((event.key === 'Enter' || event.key === ' ') && openUrl) {
+        event.preventDefault();
+        window.open(openUrl, '_blank', 'noopener,noreferrer');
+      }
+    });
+    card.querySelector('[data-delete-filename]')?.addEventListener('click', () => openDeleteConfirm('videos', file.name));
     grid.appendChild(card);
   });
 };
@@ -515,13 +558,16 @@ const renderOthers = () => {
   filtered.forEach(file => {
     const iconMeta = getFileIconClass(file.name);
     const tr = document.createElement('tr');
+    const safeName = escapeHtml(file.name);
+    const downloadUrl = escapeHtml(safeUrl(file.url) || '#');
+    const driveUrl = safeUrl(file.driveUrl);
     
-    const driveCellHTML = file.driveUrl 
-      ? `<a href="${file.driveUrl}" target="_blank" class="drive-pill-link"><i class="fa-brands fa-google-drive"></i> เปิดใน Drive</a>`
+    const driveCellHTML = driveUrl
+      ? `<a href="${escapeHtml(driveUrl)}" target="_blank" rel="noopener noreferrer" class="drive-pill-link"><i class="fa-brands fa-google-drive"></i> เปิดใน Drive</a>`
       : `<span class="no-drive">ไม่ได้อัปโหลด</span>`;
 
     const deleteButtonHTML = isAdmin 
-      ? `<button class="action-btn btn-delete" title="ลบไฟล์" onclick="openDeleteConfirm('others', '${file.name.replace(/'/g, "\\'")}')">
+      ? `<button class="action-btn btn-delete" title="ลบไฟล์" data-delete-category="others" data-delete-filename="${safeName}">
           <i class="fa-solid fa-trash-can"></i>
          </button>`
       : '';
@@ -532,18 +578,18 @@ const renderOthers = () => {
           <div class="file-icon-wrapper ${iconMeta.icon.split(' ')[1]}">
             <i class="fa-solid ${iconMeta.icon.split(' ')[0]}"></i>
           </div>
-          <span class="file-name-text" title="${file.name}">${file.name}</span>
+          <span class="file-name-text" title="${safeName}">${safeName}</span>
         </div>
       </td>
-      <td class="size-cell">${file.sizeFormatted}</td>
-      <td class="date-cell">${formatRelativeTime(file.createdAt)}</td>
+      <td class="size-cell">${escapeHtml(file.sizeFormatted)}</td>
+      <td class="date-cell">${escapeHtml(formatRelativeTime(file.createdAt))}</td>
       <td>${driveCellHTML}</td>
       <td class="actions-cell">
-        <a href="${file.url}" download class="action-btn btn-download" title="ดาวน์โหลด">
+        <a href="${downloadUrl}" download class="action-btn btn-download" title="ดาวน์โหลด">
           <i class="fa-solid fa-download"></i>
-        </a>
-        ${file.driveUrl ? `
-          <a href="${file.driveUrl}" target="_blank" class="action-btn btn-drive" title="เปิดใน Google Drive">
+          </a>
+        ${driveUrl ? `
+          <a href="${escapeHtml(driveUrl)}" target="_blank" rel="noopener noreferrer" class="action-btn btn-drive" title="เปิดใน Google Drive">
             <i class="fa-brands fa-google-drive"></i>
           </a>
         ` : ''}
@@ -551,18 +597,21 @@ const renderOthers = () => {
       </td>
     `;
     tbody.appendChild(tr);
+    tr.querySelector('[data-delete-filename]')?.addEventListener('click', () => openDeleteConfirm('others', file.name));
   });
 };
 
 // Lightbox Openers
 const openImageLightbox = (url, name, driveUrl) => {
-  lightboxImg.src = url;
+  const safeImageUrl = safeUrl(url);
+  const safeDriveUrl = safeUrl(driveUrl);
+  lightboxImg.src = safeImageUrl;
   lightboxImgTitle.textContent = name;
   
   // Set up action buttons
-  let actionsHTML = `<a href="${url}" download class="btn-primary-action"><i class="fa-solid fa-download"></i> ดาวน์โหลด</a>`;
-  if (driveUrl) {
-    actionsHTML += `<a href="${driveUrl}" target="_blank" class="btn-primary-action btn-drive-action"><i class="fa-brands fa-google-drive"></i> เปิดใน Google Drive</a>`;
+  let actionsHTML = safeImageUrl ? `<a href="${escapeHtml(safeImageUrl)}" download class="btn-primary-action"><i class="fa-solid fa-download"></i> ดาวน์โหลด</a>` : '';
+  if (safeDriveUrl) {
+    actionsHTML += `<a href="${escapeHtml(safeDriveUrl)}" target="_blank" rel="noopener noreferrer" class="btn-primary-action btn-drive-action"><i class="fa-brands fa-google-drive"></i> เปิดใน Google Drive</a>`;
   }
   lightboxImgActions.innerHTML = actionsHTML;
   
@@ -570,17 +619,19 @@ const openImageLightbox = (url, name, driveUrl) => {
 };
 
 const openVideoPlayer = (url, name, driveUrl) => {
-  previewVideoElement.src = url;
+  const safeVideoUrl = safeUrl(url);
+  const safeDriveUrl = safeUrl(driveUrl);
+  previewVideoElement.src = safeVideoUrl;
   lightboxVidTitle.textContent = name;
   
-  let actionsHTML = `<a href="${url}" download class="btn-primary-action"><i class="fa-solid fa-download"></i> ดาวน์โหลด</a>`;
-  if (driveUrl) {
-    actionsHTML += `<a href="${driveUrl}" target="_blank" class="btn-primary-action btn-drive-action"><i class="fa-brands fa-google-drive"></i> เปิดใน Google Drive</a>`;
+  let actionsHTML = safeVideoUrl ? `<a href="${escapeHtml(safeVideoUrl)}" download class="btn-primary-action"><i class="fa-solid fa-download"></i> ดาวน์โหลด</a>` : '';
+  if (safeDriveUrl) {
+    actionsHTML += `<a href="${escapeHtml(safeDriveUrl)}" target="_blank" rel="noopener noreferrer" class="btn-primary-action btn-drive-action"><i class="fa-brands fa-google-drive"></i> เปิดใน Google Drive</a>`;
   }
   lightboxVidActions.innerHTML = actionsHTML;
 
   vidLightbox.showModal();
-  previewVideoElement.play();
+  if (safeVideoUrl) previewVideoElement.play().catch(() => {});
 };
 
 // Confirm Delete opener
@@ -599,9 +650,7 @@ const executeDeleteFile = async () => {
     const url = `/api/files/${category}/${encodeURIComponent(filename)}`;
     const response = await fetch(url, {
       method: 'DELETE',
-      headers: {
-        'x-admin-password': localStorage.getItem('adminPassword') || ''
-      }
+      credentials: 'same-origin'
     });
     
     const result = await response.json();
@@ -610,6 +659,10 @@ const executeDeleteFile = async () => {
       fileToDelete = null;
       // Refresh dashboard
       fetchDashboardData();
+    } else if (response.status === 401) {
+      isAdmin = false;
+      updateAdminUI();
+      alert('เซสชันผู้ดูแลหมดอายุ กรุณาเข้าสู่ระบบใหม่');
     } else {
       alert(`ลบไฟล์ไม่สำเร็จ: ${result.error || 'คุณไม่มีสิทธิ์ในการลบไฟล์'}`);
     }
@@ -714,9 +767,11 @@ adminLoginPillBtn.addEventListener('click', () => {
   if (isAdmin) {
     // Log out if already admin
     if (confirm('คุณต้องการออกจากระบบผู้ดูแลระบบใช่หรือไม่? (ปุ่มลบไฟล์จะถูกซ่อน)')) {
-      localStorage.removeItem('adminPassword');
-      isAdmin = false;
-      updateAdminUI();
+      fetch('/api/admin/logout', { method: 'POST', credentials: 'same-origin' })
+        .finally(() => {
+          isAdmin = false;
+          updateAdminUI();
+        });
     }
   } else {
     // Show login modal
@@ -733,6 +788,7 @@ adminLoginForm.addEventListener('submit', async (e) => {
   try {
     const response = await fetch('/api/admin/login', {
       method: 'POST',
+      credentials: 'same-origin',
       headers: {
         'Content-Type': 'application/json'
       },
@@ -741,7 +797,6 @@ adminLoginForm.addEventListener('submit', async (e) => {
     
     const result = await response.json();
     if (result.success) {
-      localStorage.setItem('adminPassword', password);
       isAdmin = true;
       adminLoginModal.close();
       updateAdminUI();
@@ -767,18 +822,10 @@ const pinCodeInput = document.getElementById('pin-code-input');
 const pinErrorMsg = document.getElementById('pin-error-msg');
 
 const checkPinLockStatus = async () => {
-  const storedPin = sessionStorage.getItem('dashboardPin');
-  if (storedPin === 'fw2569' || storedPin === 'demo') {
-    pinLockOverlay.classList.add('fade-out');
-    fetchDashboardData();
-    return;
-  }
-
-  // Probe server status without a PIN to see if the server requires it (e.g. DEMO_MODE)
   try {
-    const res = await fetch('/api/status');
-    if (res.status === 200) {
-      sessionStorage.setItem('dashboardPin', 'demo');
+    const res = await fetch('/api/dashboard/session', { credentials: 'same-origin' });
+    const session = await res.json();
+    if (session.authenticated) {
       pinLockOverlay.classList.add('fade-out');
       fetchDashboardData();
     } else {
@@ -791,25 +838,35 @@ const checkPinLockStatus = async () => {
   }
 };
 
-if (pinLockForm) {
+  if (pinLockForm) {
   pinLockForm.addEventListener('submit', async (e) => {
     e.preventDefault();
     const pin = pinCodeInput.value.trim();
-
-    if (pin === 'fw2569') {
-      pinErrorMsg.classList.add('hidden');
-      sessionStorage.setItem('dashboardPin', 'fw2569');
-      pinLockOverlay.classList.add('fade-out');
-      fetchDashboardData();
-    } else {
+    try {
+      const response = await fetch('/api/dashboard/login', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pin })
+      });
+      const result = await response.json();
+      if (result.success) {
+        pinErrorMsg.classList.add('hidden');
+        pinLockOverlay.classList.add('fade-out');
+        fetchDashboardData();
+        return;
+      }
       pinErrorMsg.classList.remove('hidden');
       pinCardBox.classList.add('shake');
       pinCodeInput.value = '';
       pinCodeInput.focus();
-      
       setTimeout(() => {
         pinCardBox.classList.remove('shake');
       }, 400);
+    } catch (err) {
+      console.error('Error logging into dashboard:', err);
+      pinErrorMsg.textContent = 'ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์';
+      pinErrorMsg.classList.remove('hidden');
     }
   });
 }
@@ -817,12 +874,16 @@ if (pinLockForm) {
 // Initial Load
 document.addEventListener('DOMContentLoaded', () => {
   updateAdminUI();
+  fetch('/api/admin/session', { credentials: 'same-origin' })
+    .then((response) => response.json())
+    .then((session) => {
+      isAdmin = Boolean(session.authenticated);
+      updateAdminUI();
+    })
+    .catch(() => {});
   checkPinLockStatus();
   // Poll server status/new files every 10 seconds to keep UI up-to-date
   setInterval(() => {
-    const pin = sessionStorage.getItem('dashboardPin');
-    if (pin) {
-      fetchDashboardData();
-    }
+    fetchDashboardData();
   }, 10000);
 });
