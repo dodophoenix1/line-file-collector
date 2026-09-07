@@ -929,6 +929,53 @@ const checkPinLockStatus = async () => {
   });
 }
 
+// Theme Toggle Logic
+const themeToggleBtn = document.getElementById('theme-toggle-btn');
+const themeIcon = document.getElementById('theme-icon');
+const themeText = document.getElementById('theme-text');
+
+const applyTheme = (theme) => {
+  const selectedTheme = theme === 'dark' ? 'dark' : 'light';
+  document.documentElement.setAttribute('data-theme', selectedTheme);
+  try {
+    localStorage.setItem('theme', selectedTheme);
+  } catch (e) {}
+
+  if (selectedTheme === 'dark') {
+    if (themeIcon) {
+      themeIcon.className = 'fa-solid fa-sun';
+    }
+    if (themeText) {
+      themeText.textContent = 'โหมดสว่าง';
+    }
+    if (themeToggleBtn) {
+      themeToggleBtn.title = 'คลิกเพื่อเปลี่ยนเป็นโหมดสว่าง (Light Mode)';
+    }
+  } else {
+    if (themeIcon) {
+      themeIcon.className = 'fa-solid fa-moon';
+    }
+    if (themeText) {
+      themeText.textContent = 'โหมดมืด';
+    }
+    if (themeToggleBtn) {
+      themeToggleBtn.title = 'คลิกเพื่อเปลี่ยนเป็นโหมดมืด (Dark Mode)';
+    }
+  }
+};
+
+// Initialize Theme: default to 'light'
+const currentThemeSetting = localStorage.getItem('theme') || 'light';
+applyTheme(currentThemeSetting);
+
+if (themeToggleBtn) {
+  themeToggleBtn.addEventListener('click', () => {
+    const activeTheme = document.documentElement.getAttribute('data-theme') || 'light';
+    const nextTheme = activeTheme === 'dark' ? 'light' : 'dark';
+    applyTheme(nextTheme);
+  });
+}
+
 // Initial Load
 document.addEventListener('DOMContentLoaded', () => {
   updateAdminUI();
