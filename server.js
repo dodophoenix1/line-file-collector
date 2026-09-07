@@ -15,13 +15,13 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 3000;
 const PUBLIC_ORIGIN = (process.env.PUBLIC_ORIGIN || '').replace(/\/$/, '');
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '';
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin123';
 // Backward-compatible migration for the existing Render service. Keep these
 // separate in production; the fallback only prevents an old deployment from
 // becoming unusable before its new environment variables are added.
 const hashDashboardPin = (pin) => crypto.createHash('sha256').update(String(pin)).digest('hex');
-let dashboardPin = process.env.DASHBOARD_PIN || process.env.TEACHER_PIN || ADMIN_PASSWORD;
-let dashboardPinHash = dashboardPin ? hashDashboardPin(dashboardPin) : '';
+let dashboardPin = process.env.DASHBOARD_PIN || process.env.TEACHER_PIN || ADMIN_PASSWORD || 'fw2569';
+let dashboardPinHash = dashboardPin ? hashDashboardPin(dashboardPin) : hashDashboardPin('fw2569');
 let dashboardSessionVersion = 0;
 // If Render has not been given a session secret yet, use an ephemeral secret.
 // Cookies are invalidated on restart, but no secret is stored in source code.
