@@ -1,4 +1,14 @@
-# 🚀 LINE File Collector Hub (Stateless & Cloud-Ready)
+# 🚀 LINE File Collector & Drive Hub
+
+> 📌 **ข้อมูลสำคัญสำหรับการ Deploy / บริหารจัดการบน Render (บันทึกเตือนความจำ):**
+> * **เว็บจริง (Production):** [https://line-file-collector.onrender.com](https://line-file-collector.onrender.com)
+> * **บัญชี Render ที่ใช้:** ล็อกอินด้วย **Google** ➔ เลือกอีเมลโรงเรียน **`nattasit_v@fangwit.ac.th`** (ไอคอน **N สีเหลือง** ใน Workspace `nattasit's workspace`)
+>   *(⚠️ ห้ามใช้ `dodophoenix1@gmail.com` หรือ `admin@fangwit.ac.th` เพราะเป็นบัญชีว่างไม่มี Service และห้ามกดปุ่ม Sign in with GitHub)*
+> * **ตำแหน่งของ Service บน Render:** เมนู **Projects** ➔ โฟลเดอร์ **`My project`** ➔ **`Production`** ➔ **`line-file-collector`** (หรือกดค้นหา `Cmd+K` พิมพ์ `line-file-collector`)
+> * **การอัปเดตระบบ:** เมื่อ Push โค้ดขึ้น GitHub (`dodophoenix1/line-file-collector`) ให้เข้าไปที่ Service บน Render แล้วกด **`Manual Deploy`** ➔ **`Deploy latest commit`**
+> * **รหัสผ่านเริ่มต้น:** Teacher PIN คือ `fw2569` | Admin Password คือ `admin123`
+
+---
 
 ระบบรวบรวมไฟล์จาก LINE Bot และอัปโหลดขึ้น Google Drive อัตโนมัติ พร้อมหน้าจอเว็บแอปสำหรับจัดการแบบพรีเมียม (ดีไซน์และพัฒนาระบบโดย N. Vetchagama)
 
